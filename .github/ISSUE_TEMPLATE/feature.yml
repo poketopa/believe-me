@@ -1,0 +1,39 @@
+name: Feature proposal
+description: Propose a bounded product capability.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user-visible problem, not only a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected outcome
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable, testable completion conditions.
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Product layer
+      options:
+        - execution kernel
+        - workflow gates
+        - skill or policy
+        - adapter
+        - developer experience
+        - release engineering
+    validations:
+      required: true

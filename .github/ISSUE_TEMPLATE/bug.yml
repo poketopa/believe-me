@@ -1,0 +1,40 @@
+name: Bug report
+description: Report incorrect or unsafe behavior.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: Include the lifecycle state and exact failure.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide commands, fixture, and relevant redacted receipt data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - core lifecycle
+        - workflow gates
+        - skill or policy
+        - adapter
+        - evidence or receipt
+        - apply or rollback
+        - packaging or CI
+    validations:
+      required: true
