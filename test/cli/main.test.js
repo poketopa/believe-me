@@ -94,5 +94,5 @@ test("help and version remain plain text", async () => {
 
   const version = sink();
   assert.equal(await runCli(["--version"], { stdout: version.stream }), 0);
-  assert.equal(version.read(), "0.1.0\n");
+  assert.equal(version.read(), "0.2.0\n");
 });

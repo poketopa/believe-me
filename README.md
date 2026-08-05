@@ -7,9 +7,10 @@ workflow: select policy, execute in isolation, verify evidence, approve, and
 apply atomically.
 
 > [!NOTE]
-> BelieveMe v0.1.0 is the first public release. The npm package is
-> `@poketopa/believe-me`, and the CLI command is `believeme`. Adaptive-execution
-> work on `main` is unreleased, remains opt-in, and is not an efficacy claim.
+> BelieveMe v0.2.0 adds adaptive execution as an opt-in feature set without an
+> efficacy claim. The frozen decision cut found insufficient comparative evidence
+> for adaptive token, cost, or quality gains. The npm package is
+> `@poketopa/believe-me`, and the CLI command is `believeme`.
 
 ## Install
 

@@ -88,7 +88,7 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(version.signal, null);
   assert.equal(version.code, 0, version.stderr);
   assert.equal(version.stderr, "");
-  assert.equal(version.stdout, "0.1.0\n");
+  assert.equal(version.stdout, "0.2.0\n");
 
   const benchmarkApi = await run(
     process.execPath,

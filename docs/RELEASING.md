@@ -23,7 +23,7 @@ issue after another stable release.
 ## Current State
 
 - `package.json`, `package-lock.json`, and the runtime product identity agree on
-  `@poketopa/believe-me@0.1.0`, with `private: false`.
+  `@poketopa/believe-me@0.2.0`, with `private: false`.
 - `.github/workflows/publish.yml` listens only for a published GitHub Release,
   and the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
 - The workflow publishes only after the protected `npm` environment authorizes
@@ -41,16 +41,14 @@ The frozen adaptive decision report is
 `benchmarks/reports/adaptive-execution-v0.2/decision.jsonl` with SHA-256
 `19434728e19e2887b0ea62989d13986b10e38f7a88c56135450ec837a5fce89f`.
 It records insufficient comparative evidence for an adaptive efficiency claim and keeps
-adaptive behavior opt-in. It does not change the current `0.1.0` package/runtime
-version and does not authorize a tag, GitHub Release, environment approval, or npm
-publication.
+adaptive behavior opt-in.
 
-Before a v0.2.0 metadata PR, the owner chooses whether to fund the missing live
-comparison-v2 ablations and whether the documented additive, opt-in feature set should
-be released without an efficacy claim. Only after that explicit decision may a separate
-reviewed metadata PR move `Unreleased` entries, update package/lock/runtime versions,
-and run the existing release procedure below. The publish trigger, permissions,
-protected `npm` environment, OIDC path, and immutable-tag rules remain unchanged.
+On 2026-08-06, the owner chose to defer the missing paid live comparison-v2
+ablations and authorized `v0.2.0` as an additive, opt-in release without an
+efficacy claim. Issue #45 and its reviewed metadata pull request carry that
+decision into the package, lockfile, runtime identity, changelog, and release
+documentation. Tag creation, GitHub Release publication, protected-environment
+approval, and npm publication still follow the unchanged procedure below.
 
 ## Local Contract Check
 
@@ -58,7 +56,7 @@ Run both the ordinary checks and the exact release-mode contract:
 
 ```bash
 npm run release:check
-npm run release:check -- --tag v0.1.0 --publish
+npm run release:check -- --tag v0.2.0 --publish
 npm run check
 npm test
 npm run pack:check
