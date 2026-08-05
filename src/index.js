@@ -77,8 +77,12 @@ export {
   ADAPTIVE_ROUTE_REASONS,
   EXECUTION_POLICY_REQUIRED_FIELDS,
   EXECUTION_POLICY_ROUTE_REQUIRED_FIELDS,
+  ROUTE_RISK_TIERS,
+  ROUTE_SELECTION_REASON_CODES,
+  ROUTE_SELECTION_REQUIRED_FIELDS,
   freezeExecutionPolicy,
   validateExecutionPolicy,
+  validateRouteSelection,
 } from "./contracts/execution-policy.js";
 export {
   ADAPTIVE_ATTEMPT_REQUIRED_FIELDS,
@@ -149,6 +153,14 @@ export {
   compileWorkflowPlan,
 } from "./core/workflow-compiler.js";
 export {
+  ROUTE_FEATURE_REQUIRED_FIELDS,
+  createOneAttemptRoutedExecutor,
+  deriveRouteFeatures,
+  resolveExecutionRoute,
+  selectExecutionRoute,
+  validateRouteFeatures,
+} from "./core/route-selector.js";
+export {
   applyDeterministicChanges,
   assertDeterministicResultMatchesWorkspace,
   createIsolatedWorkspace,
@@ -159,6 +171,7 @@ export {
   resumeDeterministicHarness,
   runHarness,
   runDeterministicHarness,
+  runOneAttemptRoutedHarness,
 } from "./core/run-orchestrator.js";
 export {
   contextPackArtifactPaths,

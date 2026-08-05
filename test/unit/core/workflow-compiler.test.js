@@ -4,6 +4,7 @@ import { validateRunSpec } from "../../../src/contracts/run-spec.js";
 import { validateSkillManifest } from "../../../src/contracts/skill-manifest.js";
 import { compileWorkflowPlan } from "../../../src/core/workflow-compiler.js";
 import { sha256CanonicalJSONLine } from "../../../src/core/hash.js";
+import { selectExecutionRoute } from "../../../src/core/route-selector.js";
 
 const schema_version = { major: 1 };
 const sourceSnapshot = {
@@ -167,4 +168,46 @@ test("compileWorkflowPlan requires and validates input and run spec digests", ()
       }),
     /runSpecSha256 must be a lowercase SHA-256 hex digest/,
   );
+});
+
+test("compileWorkflowPlan preserves additive route evidence without changing steps", () => {
+  const routeSelection = selectExecutionRoute({
+    policy: {
+      schema_version,
+      policy_id: "policy",
+      attempt_budget: 1,
+      token_budget: 100,
+      wall_budget_ms: 1000,
+      routes: [{
+        route_id: "route",
+        reason: "initial",
+        adapter_id: "adapter",
+        model_id: "model",
+        reasoning_effort: "low",
+        timeout_ms: 500,
+      }],
+    },
+    features: {
+      context_bytes: 10,
+      allowed_path_count: 1,
+      verifier_kind: "command-verifier",
+      risk_tier: "low",
+    },
+  });
+  const plan = compileWorkflowPlan({
+    skillManifest: manifest(),
+    runSpec: runSpec(),
+    sourceSnapshot,
+    inputSha256,
+    runSpecSha256,
+    runId: "run-routed",
+    routeSelection,
+  });
+  assert.deepEqual(plan.route_selection, routeSelection);
+  assert.deepEqual(plan.steps.map((step) => step.id), [
+    "snapshot",
+    "execute",
+    "verify",
+    "receipt",
+  ]);
 });

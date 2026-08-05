@@ -9,6 +9,7 @@ import {
 } from "./common.js";
 import { usageError } from "./errors.js";
 import { sha256Hex } from "../core/hash.js";
+import { validateRouteSelection } from "./execution-policy.js";
 
 export const EXECUTOR_INPUT_REQUIRED_FIELDS = Object.freeze([
   "schema_version",
@@ -124,6 +125,9 @@ export function validateExecutorResult(value, options = {}) {
   const seenPaths = new Set();
   for (const change of value.changes) {
     validateChange(change, seenPaths);
+  }
+  if (value.route_selection !== undefined) {
+    validateRouteSelection(value.route_selection, options);
   }
 
   return deepFreeze(structuredClone(value));

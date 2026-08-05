@@ -14,6 +14,8 @@ Release.
 - A deterministic, budgeted ContextPack contract and localizer with hash-bound
   excerpts, explicit fallback/truncation evidence, canonical artifact persistence,
   and opt-in Codex prompt context.
+- Deterministic one-attempt route selection over bounded observable features, with
+  injected provider-neutral adapter/model aliases and frozen route evidence.
 
 ## [0.1.0] - 2026-08-05
 

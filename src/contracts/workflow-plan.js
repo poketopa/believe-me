@@ -8,6 +8,7 @@ import {
   validateContractBase,
 } from "./common.js";
 import { usageError } from "./errors.js";
+import { validateRouteSelection } from "./execution-policy.js";
 
 export const WORKFLOW_PLAN_REQUIRED_FIELDS = Object.freeze([
   "schema_version",
@@ -29,6 +30,12 @@ export function validateWorkflowPlan(value, options = {}) {
     throw usageError("steps must be an array.", { field: "steps" });
   }
   assertObject(value.expected_result, "expected_result");
+  if (value.route_selection !== undefined) {
+    validateRouteSelection(value.route_selection, options);
+    if (value.route_selection.adapter_id.length === 0) {
+      throw usageError("WorkflowPlan route selection adapter is invalid.");
+    }
+  }
   return deepFreeze(structuredClone(value));
 }
 

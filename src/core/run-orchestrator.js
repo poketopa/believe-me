@@ -47,6 +47,10 @@ import {
   assertDeterministicResultMatchesWorkspace,
   createIsolatedWorkspace,
 } from "./workspace.js";
+import {
+  createOneAttemptRoutedExecutor,
+  selectExecutionRoute,
+} from "./route-selector.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -700,6 +704,7 @@ export async function runHarness(options = {}) {
     inputSha256,
     runSpecSha256,
     runId,
+    routeSelection: options.routeSelection,
   });
   const workflowPlanSha256 = sha256CanonicalJSONLine(workflowPlan);
   if (workflowPlan.manifest_sha256 !== manifestSha256) {
@@ -775,6 +780,42 @@ export async function runDeterministicHarness(options = {}) {
       });
       return normalized;
     },
+  });
+}
+
+export async function runOneAttemptRoutedHarness(options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw usageError("Routed run options must be an object.");
+  }
+  const selection = selectExecutionRoute({
+    policy: options.policy,
+    features: options.features,
+  });
+  const routed = createOneAttemptRoutedExecutor({
+    selection,
+    adapterRegistry: options.adapterRegistry,
+  });
+  const requestedSpec = validateRunSpec(options.runSpec);
+  const runSpec = {
+    ...requestedSpec,
+    executor_kind: routed.executor_kind,
+  };
+  const runImplementation = options.runHarnessImpl ?? runHarness;
+  if (typeof runImplementation !== "function") {
+    throw usageError("runHarnessImpl must be a function.");
+  }
+  const completed = await runImplementation({
+    runId: options.runId,
+    runSpec,
+    executor: routed.executor,
+    executorInputValidator: routed.executor_input_validator,
+    routeSelection: selection,
+    recordedAt: options.recordedAt,
+    onCheckpoint: options.onCheckpoint,
+  });
+  return Object.freeze({
+    ...completed,
+    route_selection: selection,
   });
 }
 
