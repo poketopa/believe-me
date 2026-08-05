@@ -144,6 +144,27 @@ requires README, license, and third-party notices to be repository-local regular
 files present in the exact packed artifact, so symlink dereferencing cannot
 substitute unreviewed external content.
 
+## v0.2.0 Release Evidence
+
+- GitHub Release: [`v0.2.0`](https://github.com/poketopa/believe-me/releases/tag/v0.2.0)
+- Successful OIDC publish workflow:
+  [run 31051398257](https://github.com/poketopa/believe-me/actions/runs/31051398257)
+- Reviewed metadata PR and successful post-merge main CI:
+  [PR #46](https://github.com/poketopa/believe-me/pull/46) and
+  [run 31051249218](https://github.com/poketopa/believe-me/actions/runs/31051249218)
+- Immutable release commit and npm `gitHead`:
+  `8abe7e028b7685d92da1f7a98731f773d7737fe8`
+- Public package:
+  [`@poketopa/believe-me@0.2.0`](https://www.npmjs.com/package/@poketopa/believe-me/v/0.2.0)
+- Registry integrity:
+  `sha512-tSZI09Ow2L2VzLT5HTfEfqN5scd4B01ak/spLIpDyv+/28/dzeky/6MYg5v0ua+Sv44h792U0HOFqmx2pK1kBg==`
+- Registry provenance: npm exposes both its publish attestation and a SLSA
+  provenance v1 attestation at the
+  [package attestation endpoint](https://registry.npmjs.org/-/npm/v1/attestations/@poketopa%2fbelieve-me@0.2.0).
+- Clean-install smoke: a fresh prefix installed the public registry artifact;
+  `believeme --version` returned `0.2.0`, and `believeme --help` listed `init`,
+  `run`, `status`, `receipt`, `apply`, and `apply-session`.
+
 ## v0.1.0 Release Evidence
 
 - GitHub Release: [`v0.1.0`](https://github.com/poketopa/believe-me/releases/tag/v0.1.0)
