@@ -6,6 +6,7 @@ import {
   validateContractBase,
 } from "./common.js";
 import { usageError } from "./errors.js";
+import { validateContextPack } from "./context-pack.js";
 import { sha256Hex } from "../core/hash.js";
 
 const normalizedPathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))(?!.*\/\/)[^\\\0]+$/u;
@@ -57,6 +58,9 @@ export function validateCodexTaskInput(value) {
     throw usageError("task exceeds the admitted Codex prompt boundary.");
   }
   assertAllowedPaths(value.allowed_paths);
+  if (value.context_pack !== undefined) {
+    validateContextPack(value.context_pack);
+  }
   return deepFreeze(structuredClone(value));
 }
 

@@ -5,6 +5,7 @@ import { validateRunSpec } from "../contracts/run-spec.js";
 import { validateSkillManifest } from "../contracts/skill-manifest.js";
 import { validateWorkflowPlan } from "../contracts/workflow-plan.js";
 import { deepFreeze } from "../contracts/common.js";
+import { validateContextPack } from "../contracts/context-pack.js";
 import {
   validateExecutorInput,
   validateExecutorResult,
@@ -52,6 +53,10 @@ export function frozenRunInputPaths(stateDir, runId) {
       ]),
     ),
   );
+}
+
+export function contextPackArtifactPaths(artifactRoot) {
+  return pairPaths(artifactRoot, "context-pack.jsonl");
 }
 
 async function writeCanonicalPair(paths, value) {
@@ -112,6 +117,24 @@ async function readCanonicalPair(paths, label) {
     throw safetyRefusal(`${label} is not canonical JSONL.`);
   }
   return Object.freeze({ value, sha256: actualSha256 });
+}
+
+export async function writeContextPackArtifact(artifactRoot, contextPack) {
+  return writeCanonicalPair(
+    contextPackArtifactPaths(artifactRoot),
+    validateContextPack(contextPack),
+  );
+}
+
+export async function readContextPackArtifact(artifactRoot) {
+  const pair = await readCanonicalPair(
+    contextPackArtifactPaths(artifactRoot),
+    "ContextPack",
+  );
+  return Object.freeze({
+    value: validateContextPack(pair.value, { persisted: true }),
+    sha256: pair.sha256,
+  });
 }
 
 function validateSourceSnapshot(value) {

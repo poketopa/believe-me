@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createCodexExecutor } from "../../../src/adapters/codex-executor.js";
 import { validateExecutorResult } from "../../../src/contracts/executor.js";
+import { buildContextPack, createProjectSnapshot } from "../../../src/index.js";
 
 function events() {
   return Buffer.from([
@@ -126,4 +127,61 @@ test("Codex executor maps unavailable and unsafe transport outcomes", async () =
     );
   }
   assert.equal(await readFile(join(workspace, "src", "app.txt"), "utf8"), "source");
+});
+
+test("Codex executor includes an opt-in ContextPack without weakening allowed paths", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vah-codex-context-"));
+  await mkdir(join(workspace, "src"));
+  await writeFile(join(workspace, "src", "app.txt"), "source reservation boundary\n");
+  const sourceSnapshot = await createProjectSnapshot(workspace);
+  const contextPack = await buildContextPack({
+    projectRoot: workspace,
+    sourceSnapshot,
+    task: "reservation boundary",
+  });
+  let prompt;
+  const executor = createCodexExecutor({
+    validateResult: validateExecutorResult,
+    async transport(request) {
+      prompt = request.prompt;
+      await writeFile(join(workspace, "src", "app.txt"), "candidate\n");
+      return completedOutput();
+    },
+  });
+  const input = executorInput();
+  input.source_snapshot_sha256 = sourceSnapshot.sha256;
+  input.input.context_pack = contextPack;
+  await executor({ workspaceRoot: workspace, input });
+  assert.match(prompt, /Deterministic ContextPack/u);
+  assert.match(prompt, /source reservation boundary/u);
+  assert.match(prompt, /Source SHA-256/u);
+  assert.match(prompt, /allowed paths remain authoritative/u);
+  assert.doesNotMatch(prompt, /other\.txt/u);
+});
+
+test("Codex executor refuses a ContextPack from a different frozen snapshot", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "vah-codex-context-mismatch-"));
+  await mkdir(join(workspace, "src"));
+  await writeFile(join(workspace, "src", "app.txt"), "reservation boundary\n");
+  const sourceSnapshot = await createProjectSnapshot(workspace);
+  const contextPack = await buildContextPack({
+    projectRoot: workspace,
+    sourceSnapshot,
+    task: "reservation boundary",
+  });
+  const input = executorInput();
+  input.source_snapshot_sha256 = "0".repeat(64);
+  input.input.context_pack = contextPack;
+  let transportCalled = false;
+  const executor = createCodexExecutor({
+    async transport() {
+      transportCalled = true;
+      return completedOutput();
+    },
+  });
+  await assert.rejects(
+    () => executor({ workspaceRoot: workspace, input }),
+    (error) => error.code === "safety_refusal",
+  );
+  assert.equal(transportCalled, false);
 });

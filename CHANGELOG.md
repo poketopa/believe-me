@@ -11,6 +11,9 @@ Release.
   with ordered child-run bindings, route reasons, usage/timing, and nullable cost.
 - A parallel comparison-v2 contract, canonical ledger, and descriptive summary for
   named control/treatment ablations while preserving benchmark-v1 readers and files.
+- A deterministic, budgeted ContextPack contract and localizer with hash-bound
+  excerpts, explicit fallback/truncation evidence, canonical artifact persistence,
+  and opt-in Codex prompt context.
 
 ## [0.1.0] - 2026-08-05
 
