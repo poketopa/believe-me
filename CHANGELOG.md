@@ -3,6 +3,15 @@
 All notable changes are recorded here before they move into a versioned GitHub
 Release.
 
+## [Unreleased]
+
+### Added
+
+- Provider-neutral frozen execution-policy and adaptive-session evidence contracts
+  with ordered child-run bindings, route reasons, usage/timing, and nullable cost.
+- A parallel comparison-v2 contract, canonical ledger, and descriptive summary for
+  named control/treatment ablations while preserving benchmark-v1 readers and files.
+
 ## [0.1.0] - 2026-08-05
 
 ### Added
