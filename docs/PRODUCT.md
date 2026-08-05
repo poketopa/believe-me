@@ -87,6 +87,27 @@ defect; a corrected protocol-valid pilot records a harness success together with
 its higher token and latency cost. Both remain pilots until independent tasks
 and a frozen analysis cut justify a stronger comparison.
 
+## Adaptive execution decision status
+
+The development branch now has deterministic ContextPack localization,
+provider-neutral one-attempt routing, and verifier-directed bounded repair over
+immutable child runs. These additions preserve the verified run kernel and are
+covered by deterministic Node and Spring tests, but implementation evidence is not
+the same as provider-effect evidence.
+
+The frozen v0.2 decision cut contains one protocol-valid live pair for direct Codex
+versus the current harness and no compatible live comparison-v2 ledgers for
+ContextPack-only, routing-only, or routing-plus-repair. In the available pair, the
+harness produced the only verified success, with a harness-minus-direct difference of
+151,237 total tokens and 49,697 ms wall time. One task and one pair cannot support a
+population claim; provider cost and attempt-count evidence are absent from benchmark-v1.
+
+Verifier calibration is separate: eight deterministic mutants across independent Node
+and Spring tasks were all killed by two verifier commands. That result describes the
+registered corpus only. The product decision is therefore to keep adaptive behavior
+opt-in and make no adaptive efficiency or generalized superiority claim. Live paid
+ablations and v0.2.0 release activation remain explicit owner decisions.
+
 ## Core contracts
 
 - `SkillManifest`
