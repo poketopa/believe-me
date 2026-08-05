@@ -67,6 +67,37 @@ equivalence.
 The task, rather than an individual retry, is the bootstrap cluster. Repeats of
 one task therefore do not masquerade as independent task diversity.
 
+## Verifier mutation calibration
+
+Verifier strength is reported separately from ordinary task success. The deterministic
+registry binds each mutant to its task, fixture kind, target path, baseline and mutated
+content hashes, mutation family, expected verifier outcome, and exact verifier command.
+The same digest-bound descriptor fixes the verifier timeout and combined-output limit.
+Calibration runs one changed target per isolated fixture copy and classifies every row as
+`killed`, `survived`, `invalid`, `equivalent_or_undetermined`, or `infrastructure`.
+Survived rows are retained as false-accept evidence.
+Observation digests retain stable process outcomes while excluding runtime-noisy verifier
+output hashes, so the same corpus and verifier decisions reproduce byte-identical ledgers.
+
+The checked calibration corpus contains eight mutants across two independent tasks:
+`node-reservation-policy` and `roomescape-cancel-booking-penalty`. It covers Node and
+Spring, two distinct verifier commands, and two examples each of condition inversion,
+boundary alteration, guard/exception removal, and incorrect return behavior. Run it
+without provider credentials using:
+
+```console
+node scripts/run-verifier-calibration.js /tmp/calibration.jsonl
+```
+
+The frozen repository ledger is
+`benchmarks/calibration/verifier-mutation-corpus-v1/calibration.jsonl`, with SHA-256
+`33ad50cffc7081d263bb814958780ea3d65b39b8ab83c655722434702c739400`.
+All eight registered mutants were killed in this deterministic run; survived, invalid,
+equivalent/undetermined, and infrastructure counts were zero. That is a descriptive
+result for exactly two tasks and two verifier commands, not a population-level claim
+about verifier quality. Mutation execution is not a provider benchmark and makes no
+token, cost, or adaptive-performance claim.
+
 ## Sequential reporting without a success gate
 
 There is no sample upper bound and no outcome threshold that blocks report

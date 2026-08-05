@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, mkdtemp, open, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -9,11 +10,15 @@ import {
 import { inspectCodexEvents } from "../adapters/codex-events.js";
 import { createCodexCliTransport } from "../adapters/codex-transport.js";
 import { validateCodexTaskInput } from "../contracts/codex-executor.js";
-import { usageError } from "../contracts/errors.js";
+import { safetyRefusal, usageError } from "../contracts/errors.js";
 import { canonicalJSONBytes } from "../core/canonical-json.js";
 import { sha256Hex } from "../core/hash.js";
 import { runHarness } from "../core/run-orchestrator.js";
-import { createProjectSnapshot, normalizeRelativePath } from "../core/snapshot.js";
+import {
+  createProjectSnapshot,
+  normalizeRelativePath,
+  readRegularFileNoFollow,
+} from "../core/snapshot.js";
 import { createIsolatedWorkspace } from "../core/workspace.js";
 import {
   BENCHMARK_ORDER_ALGORITHM,
@@ -22,6 +27,11 @@ import {
   validateBenchmarkPairResult,
   validateBenchmarkTask,
 } from "./contracts.js";
+import {
+  validateMutationObservation,
+  validateMutationRegistry,
+} from "./mutations.js";
+import { summarizeMutationCalibration } from "./statistics.js";
 
 const ARM_DIRECT = "direct_codex";
 const ARM_HARNESS = "harness";
@@ -604,6 +614,208 @@ export async function runPairedBenchmark({
       direct_codex: results.direct_codex,
       harness: results.harness,
     }),
+  });
+}
+
+function mutationFixtureRoot(fixtureRoots, taskId) {
+  const value = fixtureRoots instanceof Map
+    ? fixtureRoots.get(taskId)
+    : fixtureRoots?.[taskId];
+  if (typeof value !== "string" || value.length === 0) {
+    throw usageError("Mutation calibration fixture root is missing.", {
+      task_id: taskId,
+    });
+  }
+  return resolve(value);
+}
+
+function mutationResultDigest(value) {
+  if (value === undefined || value === null) return null;
+  if (value === true) {
+    return sha256Hex(canonicalJSONBytes({ status: "passed" }));
+  }
+  const result = value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  return sha256Hex(canonicalJSONBytes({
+    status: result.status === "passed" ? "passed" : "failed",
+    adapter_id: typeof result.adapter_id === "string"
+      ? result.adapter_id
+      : null,
+    argv: Array.isArray(result.argv) &&
+        result.argv.every((argument) => typeof argument === "string")
+      ? result.argv
+      : null,
+    exit_code: Number.isSafeInteger(result.exit_code) ? result.exit_code : null,
+    signal: typeof result.signal === "string" ? result.signal : null,
+    timed_out: result.timed_out === true,
+    output_truncated: result.output_truncated === true,
+  }));
+}
+
+function mutationObservationBase(registry, mutation, targetSha256) {
+  return {
+    schema_version: { major: 1 },
+    corpus_id: registry.corpus_id,
+    registry_sha256: registry.registry_sha256,
+    mutation_id: mutation.mutation_id,
+    mutation_sha256: mutation.mutation_sha256,
+    task_id: mutation.task_id,
+    fixture_kind: mutation.fixture_kind,
+    target_path: mutation.target_path,
+    baseline_sha256: mutation.baseline_sha256,
+    target_sha256: targetSha256,
+    expected_verifier_outcome: mutation.expected_verifier_outcome,
+  };
+}
+
+function classifiedMutationObservation({
+  registry,
+  mutation,
+  targetSha256,
+  verifierStatus,
+  verifierResult,
+  failureCode,
+}) {
+  let outcome;
+  if (verifierStatus === "undetermined") {
+    outcome = "infrastructure";
+  } else if (mutation.expected_verifier_outcome === "reject") {
+    outcome = verifierStatus === "reject" ? "killed" : "survived";
+  } else {
+    outcome = "equivalent_or_undetermined";
+  }
+  return validateMutationObservation({
+    ...mutationObservationBase(registry, mutation, targetSha256),
+    outcome,
+    verifier_status: verifierStatus,
+    verifier_result_sha256: mutationResultDigest(verifierResult),
+    verifier_failure_code: failureCode,
+  });
+}
+
+export async function runVerifierMutationCalibration({
+  registry: registryValue,
+  fixtureRoots,
+  verifier,
+  workRoot,
+} = {}) {
+  const registry = validateMutationRegistry(registryValue);
+  if (
+    (fixtureRoots === null || typeof fixtureRoots !== "object") ||
+    typeof verifier !== "function"
+  ) {
+    throw usageError(
+      "Mutation calibration requires fixtureRoots and a verifier function.",
+    );
+  }
+  const root = workRoot === undefined
+    ? await mkdtemp(join(tmpdir(), "vah-mutation-calibration-"))
+    : resolve(workRoot);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const observations = [];
+
+  for (const [index, mutation] of registry.mutations.entries()) {
+    const sourceRoot = mutationFixtureRoot(fixtureRoots, mutation.task_id);
+    const baseline = await createProjectSnapshot(sourceRoot);
+    const workspaceRoot = join(
+      root,
+      `mutation-${String(index).padStart(4, "0")}`,
+    );
+    await createIsolatedWorkspace({
+      projectRoot: sourceRoot,
+      workspaceRoot,
+      expectedSnapshotSha256: baseline.sha256,
+    });
+    const targetPath = normalizeRelativePath(workspaceRoot, mutation.target_path);
+    const target = await readRegularFileNoFollow(
+      join(workspaceRoot, targetPath),
+      `Mutation target ${mutation.mutation_id}`,
+    ).catch(() => null);
+    if (target === null || sha256Hex(target.bytes) !== mutation.baseline_sha256) {
+      observations.push(validateMutationObservation({
+        ...mutationObservationBase(
+          registry,
+          mutation,
+          target === null ? mutation.baseline_sha256 : sha256Hex(target.bytes),
+        ),
+        outcome: "invalid",
+        verifier_status: "undetermined",
+        verifier_result_sha256: null,
+        verifier_failure_code: "baseline_target_mismatch",
+      }));
+      continue;
+    }
+
+    const before = await captureWorkspaceInventory(workspaceRoot);
+    const mutatedBytes = Buffer.from(mutation.mutated_content_base64, "base64");
+    const targetHandle = await open(
+      join(workspaceRoot, targetPath),
+      constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const openStats = await targetHandle.stat();
+      if (
+        !openStats.isFile() ||
+        openStats.dev !== target.stats.dev ||
+        openStats.ino !== target.stats.ino
+      ) {
+        throw safetyRefusal("Mutation target identity changed before write.", {
+          mutation_id: mutation.mutation_id,
+        });
+      }
+      await targetHandle.truncate(0);
+      await targetHandle.writeFile(mutatedBytes);
+    } finally {
+      await targetHandle.close();
+    }
+    const after = await captureWorkspaceInventory(workspaceRoot);
+    const diff = inventoryDiff(before, after);
+    if (
+      diff.all.length !== 1 ||
+      diff.all[0] !== targetPath ||
+      sha256Hex(after.files.get(targetPath).bytes) !== mutation.mutated_sha256
+    ) {
+      observations.push(validateMutationObservation({
+        ...mutationObservationBase(registry, mutation, mutation.mutated_sha256),
+        outcome: "invalid",
+        verifier_status: "undetermined",
+        verifier_result_sha256: null,
+        verifier_failure_code: "mutation_scope_mismatch",
+      }));
+      continue;
+    }
+
+    try {
+      const result = await verifier({ workspaceRoot, mutation });
+      const accepted = passedVerification(result);
+      observations.push(classifiedMutationObservation({
+        registry,
+        mutation,
+        targetSha256: mutation.mutated_sha256,
+        verifierStatus: accepted ? "accept" : "reject",
+        verifierResult: result,
+        failureCode: accepted ? null : "verifier_rejected",
+      }));
+    } catch (error) {
+      const verifierRejected = error?.code === "verification_failed";
+      observations.push(classifiedMutationObservation({
+        registry,
+        mutation,
+        targetSha256: mutation.mutated_sha256,
+        verifierStatus: verifierRejected ? "reject" : "undetermined",
+        verifierResult: error?.details?.result ?? null,
+        failureCode: error?.code ?? "verifier_infrastructure_error",
+      }));
+    }
+  }
+
+  const frozenObservations = Object.freeze(observations);
+  return Object.freeze({
+    work_root: root,
+    registry,
+    observations: frozenObservations,
+    summary: summarizeMutationCalibration(registry, frozenObservations),
   });
 }
 

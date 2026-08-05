@@ -14,7 +14,12 @@ import {
 import {
   summarizeBenchmarkPairs,
   summarizeComparisonV2Pairs,
+  summarizeMutationCalibration,
 } from "./statistics.js";
+import {
+  validateMutationObservation,
+  validateMutationRegistry,
+} from "./mutations.js";
 
 const SHA256_LINE_PATTERN = /^[a-f0-9]{64}\n$/u;
 
@@ -344,6 +349,116 @@ export async function readComparisonV2Ledger(path) {
   const parsed = parseComparisonV2Ledger(ledger.bytes);
   if (parsed.sha256 !== actual) {
     throw safetyRefusal("Comparison-v2 ledger replay digest mismatch.");
+  }
+  return Object.freeze({
+    ...parsed,
+    path,
+    digest_path: `${path}.sha256`,
+  });
+}
+
+export function buildMutationCalibrationLedger({
+  registry: registryValue,
+  observations: observationValues,
+} = {}) {
+  const registry = validateMutationRegistry(registryValue);
+  if (!Array.isArray(observationValues)) {
+    throw usageError("Mutation calibration observations must be an array.");
+  }
+  const observations = observationValues
+    .map((value) => validateMutationObservation(value))
+    .toSorted((left, right) => compareCodeUnit(
+      left.mutation_id,
+      right.mutation_id,
+    ));
+  const summary = summarizeMutationCalibration(registry, observations);
+  const records = [record("mutation_registry", registry)];
+  for (const observation of observations) {
+    records.push(record("mutation_observation", observation));
+  }
+  records.push(record("mutation_summary", summary));
+  const bytes = Buffer.from(records.map(canonicalJSONLine).join(""), "utf8");
+  return Object.freeze({
+    records: Object.freeze(records),
+    bytes,
+    sha256: sha256Hex(bytes),
+    registry,
+    observations: Object.freeze(observations),
+    summary,
+  });
+}
+
+export function parseMutationCalibrationLedger(raw) {
+  const records = parseCanonicalRecords(raw);
+  if (
+    records[0]?.record_type !== "mutation_registry" ||
+    records.at(-1)?.record_type !== "mutation_summary"
+  ) {
+    throw safetyRefusal("Mutation calibration ledger record order is invalid.");
+  }
+  const registry = validateMutationRegistry(records[0].value, {
+    persisted: true,
+  });
+  const observations = records
+    .filter((entry) => entry.record_type === "mutation_observation")
+    .map((entry) => validateMutationObservation(entry.value, {
+      persisted: true,
+    }));
+  const rebuilt = buildMutationCalibrationLedger({ registry, observations });
+  const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  if (!rebuilt.bytes.equals(bytes)) {
+    throw safetyRefusal(
+      "Mutation calibration ledger rows or summary do not match canonical replay.",
+    );
+  }
+  return Object.freeze({
+    records: rebuilt.records,
+    registry: rebuilt.registry,
+    observations: rebuilt.observations,
+    summary: rebuilt.summary,
+    sha256: rebuilt.sha256,
+  });
+}
+
+export async function writeMutationCalibrationLedger({ path, ...options } = {}) {
+  if (typeof path !== "string" || path.length === 0) {
+    throw usageError("Mutation calibration ledger path must be a non-empty string.");
+  }
+  const built = buildMutationCalibrationLedger(options);
+  await writeExclusive(path, built.bytes);
+  await writeExclusive(`${path}.sha256`, Buffer.from(`${built.sha256}\n`, "utf8"));
+  return Object.freeze({
+    path,
+    digest_path: `${path}.sha256`,
+    sha256: built.sha256,
+    summary: built.summary,
+  });
+}
+
+export async function readMutationCalibrationLedger(path) {
+  if (typeof path !== "string" || path.length === 0) {
+    throw usageError("Mutation calibration ledger path must be a non-empty string.");
+  }
+  const [ledger, digest] = await Promise.all([
+    readRegularFileNoFollow(path, "Mutation calibration ledger"),
+    readRegularFileNoFollow(
+      `${path}.sha256`,
+      "Mutation calibration ledger digest",
+    ),
+  ]);
+  const digestLine = digest.bytes.toString("utf8");
+  if (!SHA256_LINE_PATTERN.test(digestLine)) {
+    throw safetyRefusal(
+      "Mutation calibration ledger digest must be one lowercase SHA-256 line.",
+    );
+  }
+  const actual = sha256Hex(ledger.bytes);
+  if (actual !== digestLine.slice(0, -1)) {
+    throw safetyRefusal("Mutation calibration ledger digest mismatch.");
+  }
+  const parsed = parseMutationCalibrationLedger(ledger.bytes);
+  if (parsed.sha256 !== actual) {
+    throw safetyRefusal("Mutation calibration ledger replay digest mismatch.");
   }
   return Object.freeze({
     ...parsed,

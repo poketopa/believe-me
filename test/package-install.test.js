@@ -95,7 +95,7 @@ test("npm tarball installs with a working executable", async () => {
     [
       "--input-type=module",
       "-e",
-      "import { summarizeBenchmarkPairs, runPairedBenchmark, validateExecutionPolicy, validateAdaptiveSession, summarizeComparisonV2Pairs, buildContextPack, validateContextPack, selectExecutionRoute, runOneAttemptRoutedHarness, runAdaptiveSession, resumeAdaptiveSession } from '@poketopa/believe-me'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark, typeof validateExecutionPolicy, typeof validateAdaptiveSession, typeof summarizeComparisonV2Pairs, typeof buildContextPack, typeof validateContextPack, typeof selectExecutionRoute, typeof runOneAttemptRoutedHarness, typeof runAdaptiveSession, typeof resumeAdaptiveSession);",
+      "import { summarizeBenchmarkPairs, runPairedBenchmark, validateExecutionPolicy, validateAdaptiveSession, summarizeComparisonV2Pairs, buildContextPack, validateContextPack, selectExecutionRoute, runOneAttemptRoutedHarness, runAdaptiveSession, resumeAdaptiveSession, validateMutationRegistry, runVerifierMutationCalibration, summarizeMutationCalibration, buildMutationCalibrationLedger } from '@poketopa/believe-me'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark, typeof validateExecutionPolicy, typeof validateAdaptiveSession, typeof summarizeComparisonV2Pairs, typeof buildContextPack, typeof validateContextPack, typeof selectExecutionRoute, typeof runOneAttemptRoutedHarness, typeof runAdaptiveSession, typeof resumeAdaptiveSession, typeof validateMutationRegistry, typeof runVerifierMutationCalibration, typeof summarizeMutationCalibration, typeof buildMutationCalibrationLedger);",
     ],
     { cwd: installRoot, env: process.env },
   );
@@ -104,7 +104,7 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(benchmarkApi.stderr, "");
   assert.equal(
     benchmarkApi.stdout,
-    "function function function function function function function function function function function\n",
+    "function function function function function function function function function function function function function function function\n",
   );
 
   const fixtureRoot = resolve("test/fixtures/node-reservation-policy");

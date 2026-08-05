@@ -19,6 +19,8 @@ Release.
 - Verifier-directed adaptive sessions that retain immutable child attempts, enforce
   retry and aggregate budgets, bind bounded repair context, resume without replaying
   checkpointed children, and apply only one verified winner.
+- Deterministic verifier mutation calibration with canonical evidence, retained
+  false-accept cases, and exact Node/Spring corpus-diversity reporting.
 
 ## [0.1.0] - 2026-08-05
 
