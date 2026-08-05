@@ -319,6 +319,32 @@ test("status receipt and apply refuse a persisted run-id mismatch", async () => 
   assert.equal(applied, false);
 });
 
+test("review refuses every stored state and receipt binding mismatch", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const evidence = reviewEvidence();
+  const mismatches = [
+    ["receipt_sha256", reviewState({ receipt_sha256: paddedHash })],
+    ["manifest_sha256", reviewState({ manifest_sha256: paddedHash })],
+    ["workflow_plan_sha256", reviewState({ workflow_plan_sha256: paddedHash })],
+    ["source_snapshot_sha256", reviewState({ source_snapshot_sha256: paddedHash })],
+  ];
+
+  for (const [field, state] of mismatches) {
+    await assert.rejects(
+      () => executeCliCommand({
+        command: "review",
+        runId: "run-1",
+        project: projectRoot,
+      }, {
+        readRunState: async () => ({ state, sha256: paddedHash }),
+        readEvidenceBundle: async () => evidence,
+      }),
+      (error) => error.code === "safety_refusal",
+      field,
+    );
+  }
+});
+
 test("review refuses rejected, non-reviewable, and pre-receipt persisted runs", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
 
