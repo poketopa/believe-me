@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -106,6 +106,49 @@ test("evidence read refuses tampered artifact bytes", async () => {
   const tampered = '{"schema_version":{"major":1},"ok":false}\n';
   await writeFile(paths.verification, tampered);
   assert.notEqual(sha256Hex(Buffer.from(tampered, "utf8")), hash);
+
+  await assert.rejects(
+    () => readEvidenceBundle(artifactRoot),
+    (error) => error.code === "safety_refusal" && error.exitCode === 3,
+  );
+});
+
+test("evidence bundle refuses overwrite and preserves the first receipt", async () => {
+  const artifactRoot = await mkdtemp(join(tmpdir(), "vah-evidence-"));
+  const first = await writeEvidenceBundle({
+    artifactRoot,
+    runState: state({ artifact_root: artifactRoot }),
+    verification: { schema_version: { major: 1 }, ok: true },
+    result: { schema_version: { major: 1 }, changes: [] },
+    issuedAt: "2026-08-05T00:00:00.000Z",
+  });
+
+  await assert.rejects(
+    () => writeEvidenceBundle({
+      artifactRoot,
+      runState: state({ artifact_root: artifactRoot }),
+      verification: { schema_version: { major: 1 }, ok: false },
+      result: { schema_version: { major: 1 }, changes: [] },
+      issuedAt: "2026-08-05T00:00:01.000Z",
+    }),
+    (error) => error.code === "EEXIST",
+  );
+  assert.equal((await readEvidenceBundle(artifactRoot)).receipt_sha256, first.receipt_sha256);
+});
+
+test("evidence read refuses symlinked receipt files", async () => {
+  const artifactRoot = await mkdtemp(join(tmpdir(), "vah-evidence-"));
+  await writeEvidenceBundle({
+    artifactRoot,
+    runState: state({ artifact_root: artifactRoot }),
+    verification: { schema_version: { major: 1 }, ok: true },
+    result: { schema_version: { major: 1 }, changes: [] },
+  });
+  const paths = evidencePaths(artifactRoot);
+  const external = join(artifactRoot, "external-receipt.jsonl");
+  await writeFile(external, await readFile(paths.receipt));
+  await rm(paths.receipt);
+  await symlink(external, paths.receipt);
 
   await assert.rejects(
     () => readEvidenceBundle(artifactRoot),

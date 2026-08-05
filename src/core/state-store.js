@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { validateRunState } from "../contracts/run-state.js";
@@ -6,6 +6,7 @@ import { safetyRefusal } from "../contracts/errors.js";
 import { canonicalJSONLine } from "./canonical-json.js";
 import { sha256Hex } from "./hash.js";
 import { advanceRunState } from "./lifecycle.js";
+import { readRegularFileNoFollow } from "./snapshot.js";
 
 const STATE_FILE = "state.jsonl";
 const DIGEST_FILE = "state.sha256";
@@ -44,10 +45,12 @@ export async function writeRunState(stateDir, state) {
 }
 
 export async function readRunState(stateDir, runId) {
-  const [line, digestLine] = await Promise.all([
-    readFile(runStatePath(stateDir, runId), "utf8"),
-    readFile(runStateDigestPath(stateDir, runId), "utf8"),
+  const [stateFile, digestFile] = await Promise.all([
+    readRegularFileNoFollow(runStatePath(stateDir, runId), "Run state"),
+    readRegularFileNoFollow(runStateDigestPath(stateDir, runId), "Run state digest"),
   ]);
+  const line = stateFile.bytes.toString("utf8");
+  const digestLine = digestFile.bytes.toString("utf8");
 
   if (!line.endsWith("\n") || line.slice(0, -1).includes("\n")) {
     throw safetyRefusal("Persisted run state must be exactly one JSON line.");
