@@ -23,6 +23,9 @@ Release.
 - Dormant npm Trusted Publishing workflow contract plus release validator that
   bind tag, package metadata, lock metadata, runtime identity, required files,
   and packed artifact allowlist before any future publish step.
+- Durable owner-source redistribution evidence for the three adapted harness
+  components, bound to exact source hashes and the rights-holder confirmation
+  in BelieveMe Issue #22.
 
 ### Changed
 
@@ -39,8 +42,5 @@ Release.
   proof exists yet.
 - Current paired benchmark evidence is pilot evidence only; it does not prove
   generalized harness superiority.
-- `THIRD_PARTY_NOTICES.md` still records unresolved owner-source licensing for
-  adapted components. Conversational reuse permission does not by itself prove
-  durable public redistribution rights.
 - Maximum current release claim: `dormant contract validated; publication
   blocked and unproven`.

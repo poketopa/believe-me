@@ -13,10 +13,9 @@ and unproven`.
   but the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
 - No npm package, GitHub Release, release tag, public repository setting,
   Trusted Publisher, or GitHub `npm` environment is created by this milestone.
-- `THIRD_PARTY_NOTICES.md` still records unresolved owner-source licensing for
-  adapted components. Public npm publication requires durable written
-  redistribution/license confirmation for those components or clean-room
-  replacement before activation.
+- `THIRD_PARTY_NOTICES.md` records the durable owner-source redistribution grant
+  for the three adapted components through
+  [Issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788).
 
 ## Local Contract Check
 
@@ -38,10 +37,9 @@ set.
 Complete these steps in order. Do not set `NPM_PUBLISH_ENABLED=true` until every
 earlier step is done and reviewed.
 
-1. Resolve third-party redistribution rights with durable written license
-   confirmation, or replace the affected adapted components through clean-room
-   implementation.
-2. Keep the finalized npm identity `@poketopa/believe-me` and owner scope
+1. [x] Record durable owner-source redistribution rights for the adapted
+   components. Issue #22 is the canonical confirmation.
+2. [x] Keep the finalized npm identity `@poketopa/believe-me` and owner scope
    `poketopa` consistent across package, runtime, and repository metadata.
 3. Reconfirm package-name availability immediately before the first public
    release.

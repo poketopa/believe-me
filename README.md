@@ -229,10 +229,11 @@ package ownership, create the GitHub `npm` environment, and configure npm
 Trusted Publishing for
 `.github/workflows/publish.yml`, remove `private:true` in a reviewed metadata
 change, and enable the repository variable only after those gates are visible.
-`THIRD_PARTY_NOTICES.md` also has an unresolved owner-source licensing blocker:
-conversational reuse permission is not durable public redistribution proof, so
-the adapted components need written redistribution/license confirmation or
-clean-room replacement first.
+The prior owner-source licensing blocker for the three listed adapted
+components is resolved by the durable rights-holder confirmation in
+[Issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788)
+and recorded in `THIRD_PARTY_NOTICES.md`. Publication remains disabled until the
+remaining release activation gates are completed.
 
 The current release claim is limited to `dormant contract validated;
 publication blocked and unproven`. See [CHANGELOG.md](CHANGELOG.md) and

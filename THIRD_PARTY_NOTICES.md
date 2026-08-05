@@ -49,8 +49,12 @@ Owner-authorized adapted source:
   `workspace-write` flags, generic workspace-diff result derivation, typed
   harness errors, receipt-bound event bytes, and the npm package API;
 - upstream package license at adaptation time: `UNLICENSED`/all rights reserved;
-- additional permission: the source owner explicitly authorized code reuse for
-  this portfolio harness in the project-planning conversation;
+- additional permission: on 2026-08-05, the source owner and repository owner
+  `poketopa` confirmed the explicit rights-holder declaration in
+  [BelieveMe issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788),
+  authorizing use, modification, and public redistribution of the three exact
+  source components above as part of BelieveMe under Apache License 2.0,
+  including publication through GitHub and npm;
 - adaptation date: 2026-08-05.
 
 Vendored build tooling:
