@@ -168,8 +168,10 @@ test("actual one-attempt run persists route evidence and stops before apply", as
     },
   })}\n`);
   await writeFile(inputPath, `${JSON.stringify({
-    target_path: targetPath,
-    candidate: "candidate\n",
+    changes: [{
+      path: targetPath,
+      candidate: "candidate\n",
+    }],
   })}\n`);
   const stateDir = join(projectRoot, ".harness");
   const completed = await runOneAttemptRoutedHarness({
@@ -188,21 +190,28 @@ test("actual one-attempt run persists route evidence and stops before apply", as
       attempt_budget: 1,
       token_budget: 1000,
       wall_budget_ms: 30_000,
-      routes: [{
-        route_id: "actual-route",
-        reason: "initial",
-        adapter_id: "fixture-deterministic",
-        model_id: "opaque-fixture-model",
-        reasoning_effort: "low",
-        timeout_ms: 10_000,
-      }],
+      routes: [
+        {
+          route_id: "untrusted-spring-route",
+          reason: "initial",
+          adapter_id: "fixture-spring",
+          model_id: "opaque-spring-model",
+          reasoning_effort: "medium",
+          timeout_ms: 10_000,
+          match: { verifier_kinds: ["spring-verifier"] },
+        },
+        {
+          route_id: "actual-route",
+          reason: "initial",
+          adapter_id: "fixture-deterministic",
+          model_id: "opaque-fixture-model",
+          reasoning_effort: "low",
+          timeout_ms: 10_000,
+          match: { verifier_kinds: ["command-verifier"] },
+        },
+      ],
     },
-    features: {
-      context_bytes: 0,
-      allowed_path_count: 1,
-      verifier_kind: "command-verifier",
-      risk_tier: "low",
-    },
+    riskTier: "low",
     adapterRegistry: {
       "fixture-deterministic": {
         executor_kind: "deterministic",
@@ -210,15 +219,16 @@ test("actual one-attempt run persists route evidence and stops before apply", as
         reasoning_efforts: ["low"],
         executor_input_validator: (value) => value,
         create_executor: () => async ({ workspaceRoot, input }) => {
-          const bytes = Buffer.from(input.input.candidate, "utf8");
-          await writeFile(join(workspaceRoot, input.input.target_path), bytes);
+          const change = input.input.changes[0];
+          const bytes = Buffer.from(change.candidate, "utf8");
+          await writeFile(join(workspaceRoot, change.path), bytes);
           return {
             schema_version: { major: 1 },
             run_id: input.run_id,
             executor_kind: "deterministic",
             status: "completed",
             changes: [{
-              path: input.input.target_path,
+              path: change.path,
               content_base64: bytes.toString("base64"),
               sha256: sha256Hex(bytes),
             }],
@@ -237,7 +247,21 @@ test("actual one-attempt run persists route evidence and stops before apply", as
   assert.equal(frozen.runSpec.value.skill_manifest_path, manifestPath);
   assert.equal(frozen.runSpec.value.input_path, inputPath);
   assert.equal(frozen.runSpec.value.executor_kind, "deterministic");
+  assert.equal(completed.route_selection.route_id, "actual-route");
+  assert.deepEqual(completed.route_selection.features, {
+    context_bytes: 0,
+    allowed_path_count: 1,
+    verifier_kind: "command-verifier",
+    risk_tier: "low",
+  });
   assert.deepEqual(frozen.workflowPlan.value.route_selection, completed.route_selection);
   assert.deepEqual(evidence.result.route_selection, completed.route_selection);
   assert.equal(evidence.result.changes[0].path, targetPath);
+});
+
+test("routed runs reject caller-supplied route features", async () => {
+  await assert.rejects(
+    runOneAttemptRoutedHarness({ features: { verifier_kind: "spring-verifier" } }),
+    /derived from frozen run inputs/u,
+  );
 });

@@ -1,56 +1,12 @@
 import {
-  ROUTE_RISK_TIERS,
   validateExecutionPolicy,
+  validateRouteFeatures,
   validateRouteSelection,
 } from "../contracts/execution-policy.js";
 import { EXECUTOR_KINDS, deepFreeze } from "../contracts/common.js";
 import { infraError, safetyRefusal, usageError } from "../contracts/errors.js";
 import { sha256CanonicalJSON } from "./hash.js";
 import { validateContextPack } from "../contracts/context-pack.js";
-
-export const ROUTE_FEATURE_REQUIRED_FIELDS = Object.freeze([
-  "context_bytes",
-  "allowed_path_count",
-  "verifier_kind",
-  "risk_tier",
-]);
-
-function assertNonNegativeSafeInteger(value, field) {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw usageError(`${field} must be a non-negative safe integer.`, { field });
-  }
-}
-
-export function validateRouteFeatures(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw usageError("Route features must be an object.");
-  }
-  for (const field of ROUTE_FEATURE_REQUIRED_FIELDS) {
-    if (!Object.hasOwn(value, field)) {
-      throw usageError(`Route features are missing required field '${field}'.`, {
-        field,
-      });
-    }
-  }
-  const unsupported = Object.keys(value)
-    .filter((field) => !ROUTE_FEATURE_REQUIRED_FIELDS.includes(field));
-  if (unsupported.length > 0) {
-    throw usageError("Route features contain unsupported fields.", {
-      fields: unsupported.sort(),
-    });
-  }
-  assertNonNegativeSafeInteger(value.context_bytes, "context_bytes");
-  assertNonNegativeSafeInteger(value.allowed_path_count, "allowed_path_count");
-  if (typeof value.verifier_kind !== "string" || value.verifier_kind.length === 0) {
-    throw usageError("verifier_kind must be a non-empty string.");
-  }
-  if (!ROUTE_RISK_TIERS.includes(value.risk_tier)) {
-    throw usageError("risk_tier is unsupported.", {
-      allowed_values: ROUTE_RISK_TIERS,
-    });
-  }
-  return deepFreeze(structuredClone(value));
-}
 
 export function deriveRouteFeatures({
   contextPack,
@@ -128,6 +84,7 @@ export function selectExecutionRoute({ policy, features }) {
     policy_id: frozenPolicy.policy_id,
     policy_sha256: sha256CanonicalJSON(frozenPolicy),
     features_sha256: sha256CanonicalJSON(frozenFeatures),
+    features: frozenFeatures,
     route_id: route.route_id,
     route_index: routeIndex,
     reason: route.reason,

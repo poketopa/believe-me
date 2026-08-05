@@ -14,6 +14,7 @@ import {
 } from "../contracts/errors.js";
 import { validateRunSpec } from "../contracts/run-spec.js";
 import { validateSkillManifest } from "../contracts/skill-manifest.js";
+import { verifierSpecFromManifest } from "../contracts/verifier.js";
 import {
   validateExecutorInput,
   validateExecutorResult,
@@ -49,6 +50,7 @@ import {
 } from "./workspace.js";
 import {
   createOneAttemptRoutedExecutor,
+  deriveRouteFeatures,
   selectExecutionRoute,
 } from "./route-selector.js";
 
@@ -183,6 +185,18 @@ function canonicalizeRunSpec(spec, projectRoot, stateDir) {
     skill_manifest_path: resolveFromProject(projectRoot, spec.skill_manifest_path),
     input_path: resolveFromProject(projectRoot, spec.input_path),
   });
+}
+
+function allowedPathsFromRawInput(rawInput) {
+  if (Array.isArray(rawInput.allowed_paths)) {
+    return rawInput.allowed_paths;
+  }
+  if (Array.isArray(rawInput.changes)) {
+    return rawInput.changes.map((change) => change?.path);
+  }
+  throw usageError(
+    "Routed executor input must expose allowed_paths or changes[].path.",
+  );
 }
 
 async function createRunDirectory(stateDir, runId) {
@@ -663,7 +677,7 @@ export async function runHarness(options = {}) {
 
   const projectRoot = await canonicalProjectRoot(rawSpec.project_path);
   const stateDir = await canonicalStateDir(projectRoot, rawSpec.state_dir);
-  const runSpec = canonicalizeRunSpec(rawSpec, projectRoot, stateDir);
+  let runSpec = canonicalizeRunSpec(rawSpec, projectRoot, stateDir);
   const manifest = validateSkillManifest(await readJsonInput(
     runSpec.skill_manifest_path,
     "Skill manifest",
@@ -672,9 +686,54 @@ export async function runHarness(options = {}) {
   if (rawInput === null || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     throw usageError("Executor input must be an object.");
   }
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  let routeSelection;
+  let selectedExecutor = options.executor;
+  let inputValidator = options.executorInputValidator;
+  if (options.routeRequest !== undefined) {
+    if (
+      options.executor !== undefined ||
+      options.executorInputValidator !== undefined ||
+      options.routeSelection !== undefined
+    ) {
+      throw usageError("Routed runs do not accept injected execution overrides.");
+    }
+    const request = options.routeRequest;
+    if (request === null || typeof request !== "object" || Array.isArray(request)) {
+      throw usageError("routeRequest must be an object.");
+    }
+    if (
+      rawInput.context_pack !== undefined &&
+      rawInput.context_pack?.source_snapshot_sha256 !== sourceSnapshot.sha256
+    ) {
+      throw safetyRefusal(
+        "ContextPack source snapshot does not match the frozen project snapshot.",
+      );
+    }
+    const features = deriveRouteFeatures({
+      contextPack: rawInput.context_pack,
+      allowedPaths: allowedPathsFromRawInput(rawInput),
+      verifierKind: verifierSpecFromManifest(manifest).adapter_id,
+      riskTier: request.riskTier,
+    });
+    routeSelection = selectExecutionRoute({
+      policy: request.policy,
+      features,
+    });
+    const routed = createOneAttemptRoutedExecutor({
+      selection: routeSelection,
+      adapterRegistry: request.adapterRegistry,
+    });
+    runSpec = canonicalizeRunSpec({
+      ...rawSpec,
+      executor_kind: routed.executor_kind,
+    }, projectRoot, stateDir);
+    selectedExecutor = routed.executor;
+    inputValidator = routed.executor_input_validator;
+  }
   const normalizedRawInput =
-    typeof options.executorInputValidator === "function"
-      ? options.executorInputValidator(rawInput)
+    typeof inputValidator === "function"
+      ? inputValidator(rawInput)
       : rawInput;
   if (
     normalizedRawInput === null ||
@@ -684,7 +743,6 @@ export async function runHarness(options = {}) {
     throw usageError("Executor input validator must return an object.");
   }
 
-  const sourceSnapshot = await createProjectSnapshot(projectRoot);
   const manifestSha256 = sha256CanonicalJSONLine(manifest);
   const executorInput = validateExecutorInput({
     schema_version: { major: 1 },
@@ -704,7 +762,7 @@ export async function runHarness(options = {}) {
     inputSha256,
     runSpecSha256,
     runId,
-    routeSelection: options.routeSelection,
+    routeSelection,
   });
   const workflowPlanSha256 = sha256CanonicalJSONLine(workflowPlan);
   if (workflowPlan.manifest_sha256 !== manifestSha256) {
@@ -741,13 +799,16 @@ export async function runHarness(options = {}) {
     { observed: { source_snapshot_sha256: sourceSnapshot.sha256 } },
   );
 
-  return executeRun({
+  const completed = await executeRun({
     stateDir,
     state: planned.state,
     inputs: await readFrozenRunInputs(stateDir, runId),
     currentSnapshot: sourceSnapshot,
     recordedAt: options.recordedAt ?? (() => new Date().toISOString()),
-  }, options);
+  }, { ...options, executor: selectedExecutor });
+  return routeSelection === undefined
+    ? completed
+    : Object.freeze({ ...completed, route_selection: routeSelection });
 }
 
 export async function runDeterministicHarness(options = {}) {
@@ -787,31 +848,19 @@ export async function runOneAttemptRoutedHarness(options = {}) {
   if (options === null || typeof options !== "object" || Array.isArray(options)) {
     throw usageError("Routed run options must be an object.");
   }
-  const selection = selectExecutionRoute({
-    policy: options.policy,
-    features: options.features,
-  });
-  const routed = createOneAttemptRoutedExecutor({
-    selection,
-    adapterRegistry: options.adapterRegistry,
-  });
-  const requestedSpec = validateRunSpec(options.runSpec);
-  const runSpec = {
-    ...requestedSpec,
-    executor_kind: routed.executor_kind,
-  };
-  const completed = await runHarness({
+  if (options.features !== undefined) {
+    throw usageError("Routed run features are derived from frozen run inputs.");
+  }
+  return runHarness({
     runId: options.runId,
-    runSpec,
-    executor: routed.executor,
-    executorInputValidator: routed.executor_input_validator,
-    routeSelection: selection,
+    runSpec: options.runSpec,
+    routeRequest: {
+      policy: options.policy,
+      riskTier: options.riskTier,
+      adapterRegistry: options.adapterRegistry,
+    },
     recordedAt: options.recordedAt,
     onCheckpoint: options.onCheckpoint,
-  });
-  return Object.freeze({
-    ...completed,
-    route_selection: selection,
   });
 }
 

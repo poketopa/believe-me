@@ -9,6 +9,7 @@ import {
   validateContractBase,
 } from "./common.js";
 import { usageError } from "./errors.js";
+import { sha256CanonicalJSON } from "../core/hash.js";
 
 export const ADAPTIVE_ROUTE_REASONS = Object.freeze([
   "initial",
@@ -31,11 +32,19 @@ export const ROUTE_SELECTION_REASON_CODES = Object.freeze([
   "verifier_kind",
 ]);
 
+export const ROUTE_FEATURE_REQUIRED_FIELDS = Object.freeze([
+  "context_bytes",
+  "allowed_path_count",
+  "verifier_kind",
+  "risk_tier",
+]);
+
 export const ROUTE_SELECTION_REQUIRED_FIELDS = Object.freeze([
   "schema_version",
   "policy_id",
   "policy_sha256",
   "features_sha256",
+  "features",
   "route_id",
   "route_index",
   "reason",
@@ -141,6 +150,29 @@ function assertNonNegativeSafeInteger(value, field) {
   }
 }
 
+export function validateRouteFeatures(value) {
+  assertObject(value, "Route features");
+  for (const field of ROUTE_FEATURE_REQUIRED_FIELDS) {
+    if (!Object.hasOwn(value, field)) {
+      throw usageError(`Route features are missing required field '${field}'.`, {
+        field,
+      });
+    }
+  }
+  const unsupported = Object.keys(value)
+    .filter((field) => !ROUTE_FEATURE_REQUIRED_FIELDS.includes(field));
+  if (unsupported.length > 0) {
+    throw usageError("Route features contain unsupported fields.", {
+      fields: unsupported.sort(),
+    });
+  }
+  assertNonNegativeSafeInteger(value.context_bytes, "context_bytes");
+  assertNonNegativeSafeInteger(value.allowed_path_count, "allowed_path_count");
+  assertString(value.verifier_kind, "verifier_kind");
+  assertEnum(value.risk_tier, "risk_tier", ROUTE_RISK_TIERS);
+  return deepFreeze(structuredClone(value));
+}
+
 export function validateRouteSelection(value, options = {}) {
   validateContractBase(
     value,
@@ -151,6 +183,10 @@ export function validateRouteSelection(value, options = {}) {
   assertString(value.policy_id, "policy_id");
   assertSha256Hex(value.policy_sha256, "policy_sha256");
   assertSha256Hex(value.features_sha256, "features_sha256");
+  const features = validateRouteFeatures(value.features);
+  if (sha256CanonicalJSON(features) !== value.features_sha256) {
+    throw usageError("RouteSelection feature digest mismatch.");
+  }
   assertString(value.route_id, "route_id");
   assertNonNegativeSafeInteger(value.route_index, "route_index");
   if (value.reason !== "initial") {
