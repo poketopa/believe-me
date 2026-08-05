@@ -35,6 +35,19 @@ skill / policy
 
 The first CLI surface will be `init`, `run`, `status`, `receipt`, and `apply`.
 
+## Current proof
+
+The repository now includes the deterministic contract/evidence/apply kernel and
+the first real verifier adapter. The canonical Roomescape Spring fixture proves
+the strict owner cancellation boundary, manager exemption, unchanged not-found
+behavior, first-waiting promotion, transactional rollback, and PostgreSQL row
+preservation.
+
+The fixture is verified through its pinned Gradle wrapper with a direct argv
+spawn (`shell: false`). Gradle distribution and dependency versions are locked;
+GitHub Actions also runs the preservation test against a digest-pinned
+PostgreSQL service.
+
 ## Development
 
 Node.js 24 LTS or later is required.

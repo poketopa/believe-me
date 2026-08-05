@@ -1,0 +1,3 @@
+test/fixtures/roomescape-cancel-booking-penalty/gradlew text eol=lf
+test/fixtures/roomescape-cancel-booking-penalty/gradlew.bat text eol=crlf
+*.jar binary

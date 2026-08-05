@@ -1,0 +1,18 @@
+spring:
+  main:
+    banner-mode: off
+  datasource:
+    url: ${ROOMESCAPE_POSTGRES_URL:jdbc:h2:mem:roomescape;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE}
+    username: ${ROOMESCAPE_POSTGRES_USER:sa}
+    password: ${ROOMESCAPE_POSTGRES_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+logging:
+  level:
+    root: ERROR

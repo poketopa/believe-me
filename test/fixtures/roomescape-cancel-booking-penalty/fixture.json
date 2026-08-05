@@ -1,0 +1,50 @@
+{
+  "schema_version": {
+    "major": 1
+  },
+  "fixture_id": "roomescape-cancel-booking-penalty",
+  "oracle_source": {
+    "repository_commit": "dc958f858882f10e11644326296690b8670ae7b5",
+    "requirement_path": "studies/portfolio-semantic-evaluator-v1/phase3-preprovider-fake-validation-20260724T014000Z/reviewer-packages/P3-M04/package.json",
+    "implementation_origin": "clean_room"
+  },
+  "verifier": {
+    "command": "./gradlew",
+    "args": [
+      "--no-daemon",
+      "--console=plain",
+      "-q",
+      "test"
+    ]
+  },
+  "business_zone": "Asia/Seoul",
+  "cancellation_deadline_minutes": 30,
+  "seed": {
+    "owner_id": 101,
+    "manager_id": 501,
+    "store_id": 10,
+    "reservation_local_start": "2026-08-06T12:00:00",
+    "waiting_owner_ids": [
+      201,
+      202
+    ]
+  },
+  "required_assertions": [
+    "owner_before_deadline_allowed",
+    "owner_at_deadline_refused",
+    "owner_after_deadline_refused",
+    "manager_deadline_exempt",
+    "manager_store_ownership_preserved",
+    "manager_past_reservation_restriction_preserved",
+    "owner_not_found_preserved",
+    "refusal_preserves_reservation_and_waiting_order",
+    "allowed_cancel_promotes_first_waiting",
+    "promotion_failure_rolls_back",
+    "postgresql_refusal_preserves_rows"
+  ],
+  "target_files": [
+    "src/main/java/com/roomescape/booking/application/ReservationService.java",
+    "src/main/java/com/roomescape/support/error/ErrorCode.java",
+    "src/main/java/com/roomescape/support/error/ApiExceptionHandler.java"
+  ]
+}
