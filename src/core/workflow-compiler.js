@@ -43,6 +43,7 @@ export function compileWorkflowPlan({
   inputSha256,
   runSpecSha256,
   runId,
+  routeSelection,
 }) {
   assertString(runId, "runId");
   assertSha256Hex(inputSha256, "inputSha256");
@@ -52,7 +53,7 @@ export function compileWorkflowPlan({
   assertSourceSnapshot(sourceSnapshot);
   assertExecutorAdmitted(manifest, spec);
 
-  return validateWorkflowPlan({
+  const plan = {
     schema_version: { major: 1 },
     run_id: runId,
     manifest_sha256: sha256CanonicalJSONLine(manifest),
@@ -65,5 +66,9 @@ export function compileWorkflowPlan({
       min_changes: 1,
       run_spec_sha256: runSpecSha256,
     },
-  });
+  };
+  if (routeSelection !== undefined) {
+    plan.route_selection = routeSelection;
+  }
+  return validateWorkflowPlan(plan);
 }

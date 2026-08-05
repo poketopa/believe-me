@@ -14,6 +14,7 @@ import {
 } from "../contracts/errors.js";
 import { validateRunSpec } from "../contracts/run-spec.js";
 import { validateSkillManifest } from "../contracts/skill-manifest.js";
+import { verifierSpecFromManifest } from "../contracts/verifier.js";
 import {
   validateExecutorInput,
   validateExecutorResult,
@@ -47,6 +48,11 @@ import {
   assertDeterministicResultMatchesWorkspace,
   createIsolatedWorkspace,
 } from "./workspace.js";
+import {
+  createOneAttemptRoutedExecutor,
+  deriveRouteFeatures,
+  selectExecutionRoute,
+} from "./route-selector.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -179,6 +185,18 @@ function canonicalizeRunSpec(spec, projectRoot, stateDir) {
     skill_manifest_path: resolveFromProject(projectRoot, spec.skill_manifest_path),
     input_path: resolveFromProject(projectRoot, spec.input_path),
   });
+}
+
+function allowedPathsFromRawInput(rawInput) {
+  if (Array.isArray(rawInput.allowed_paths)) {
+    return rawInput.allowed_paths;
+  }
+  if (Array.isArray(rawInput.changes)) {
+    return rawInput.changes.map((change) => change?.path);
+  }
+  throw usageError(
+    "Routed executor input must expose allowed_paths or changes[].path.",
+  );
 }
 
 async function createRunDirectory(stateDir, runId) {
@@ -363,7 +381,21 @@ function assertArtifactRoot(stateDir, runId, artifactRoot) {
   }
 }
 
-function assertEvidenceMatchesState(state, evidence) {
+function assertRouteSelectionMatchesWorkflow(workflowPlan, result) {
+  const plannedRoute = workflowPlan.route_selection;
+  const resultRoute = result.route_selection;
+  if (
+    (plannedRoute === undefined) !== (resultRoute === undefined) ||
+    (plannedRoute !== undefined &&
+      sha256CanonicalJSONLine(plannedRoute) !== sha256CanonicalJSONLine(resultRoute))
+  ) {
+    throw safetyRefusal(
+      "Executor result route selection does not match the frozen workflow plan.",
+    );
+  }
+}
+
+function assertEvidenceMatchesState(state, evidence, workflowPlan) {
   if (evidence.receipt_sha256 !== state.receipt_sha256 && state.receipt_sha256) {
     throw safetyRefusal("Evidence receipt hash does not match run state.");
   }
@@ -388,6 +420,7 @@ function assertEvidenceMatchesState(state, evidence) {
   if (result.executor_kind !== state.executor_kind) {
     throw safetyRefusal("Evidence result executor kind does not match run state.");
   }
+  assertRouteSelectionMatchesWorkflow(workflowPlan, result);
   if (evidence.verification?.status !== "passed") {
     throw safetyRefusal("Evidence verification is not a passed result.");
   }
@@ -461,7 +494,11 @@ async function finishFromExistingEvidence(context, evidence) {
       { lifecycle_state: context.state.lifecycle_state },
     );
   }
-  assertEvidenceMatchesState(context.state, evidence);
+  assertEvidenceMatchesState(
+    context.state,
+    evidence,
+    context.inputs.workflowPlan.value,
+  );
   let state = context.state;
   const observed = {
     source_snapshot_sha256: state.source_snapshot_sha256,
@@ -559,6 +596,10 @@ async function executeRun(context, options) {
     if (result.executor_kind !== state.executor_kind) {
       throw safetyRefusal("Executor result kind does not match run state.");
     }
+    assertRouteSelectionMatchesWorkflow(
+      context.inputs.workflowPlan.value,
+      result,
+    );
     await assertDeterministicResultMatchesWorkspace({
       workspaceRoot,
       result,
@@ -646,7 +687,11 @@ async function executeRun(context, options) {
   await options.onCheckpoint?.({ state, bundle });
 
   const evidence = await readEvidenceBundle(state.artifact_root);
-  assertEvidenceMatchesState(state, evidence);
+  assertEvidenceMatchesState(
+    state,
+    evidence,
+    context.inputs.workflowPlan.value,
+  );
   return finishFromExistingEvidence(context, evidence);
 }
 
@@ -659,7 +704,7 @@ export async function runHarness(options = {}) {
 
   const projectRoot = await canonicalProjectRoot(rawSpec.project_path);
   const stateDir = await canonicalStateDir(projectRoot, rawSpec.state_dir);
-  const runSpec = canonicalizeRunSpec(rawSpec, projectRoot, stateDir);
+  let runSpec = canonicalizeRunSpec(rawSpec, projectRoot, stateDir);
   const manifest = validateSkillManifest(await readJsonInput(
     runSpec.skill_manifest_path,
     "Skill manifest",
@@ -668,9 +713,54 @@ export async function runHarness(options = {}) {
   if (rawInput === null || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     throw usageError("Executor input must be an object.");
   }
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  let routeSelection;
+  let selectedExecutor = options.executor;
+  let inputValidator = options.executorInputValidator;
+  if (options.routeRequest !== undefined) {
+    if (
+      options.executor !== undefined ||
+      options.executorInputValidator !== undefined ||
+      options.routeSelection !== undefined
+    ) {
+      throw usageError("Routed runs do not accept injected execution overrides.");
+    }
+    const request = options.routeRequest;
+    if (request === null || typeof request !== "object" || Array.isArray(request)) {
+      throw usageError("routeRequest must be an object.");
+    }
+    if (
+      rawInput.context_pack !== undefined &&
+      rawInput.context_pack?.source_snapshot_sha256 !== sourceSnapshot.sha256
+    ) {
+      throw safetyRefusal(
+        "ContextPack source snapshot does not match the frozen project snapshot.",
+      );
+    }
+    const features = deriveRouteFeatures({
+      contextPack: rawInput.context_pack,
+      allowedPaths: allowedPathsFromRawInput(rawInput),
+      verifierKind: verifierSpecFromManifest(manifest).adapter_id,
+      riskTier: request.riskTier,
+    });
+    routeSelection = selectExecutionRoute({
+      policy: request.policy,
+      features,
+    });
+    const routed = createOneAttemptRoutedExecutor({
+      selection: routeSelection,
+      adapterRegistry: request.adapterRegistry,
+    });
+    runSpec = canonicalizeRunSpec({
+      ...rawSpec,
+      executor_kind: routed.executor_kind,
+    }, projectRoot, stateDir);
+    selectedExecutor = routed.executor;
+    inputValidator = routed.executor_input_validator;
+  }
   const normalizedRawInput =
-    typeof options.executorInputValidator === "function"
-      ? options.executorInputValidator(rawInput)
+    typeof inputValidator === "function"
+      ? inputValidator(rawInput)
       : rawInput;
   if (
     normalizedRawInput === null ||
@@ -680,7 +770,6 @@ export async function runHarness(options = {}) {
     throw usageError("Executor input validator must return an object.");
   }
 
-  const sourceSnapshot = await createProjectSnapshot(projectRoot);
   const manifestSha256 = sha256CanonicalJSONLine(manifest);
   const executorInput = validateExecutorInput({
     schema_version: { major: 1 },
@@ -700,6 +789,7 @@ export async function runHarness(options = {}) {
     inputSha256,
     runSpecSha256,
     runId,
+    routeSelection,
   });
   const workflowPlanSha256 = sha256CanonicalJSONLine(workflowPlan);
   if (workflowPlan.manifest_sha256 !== manifestSha256) {
@@ -736,13 +826,16 @@ export async function runHarness(options = {}) {
     { observed: { source_snapshot_sha256: sourceSnapshot.sha256 } },
   );
 
-  return executeRun({
+  const completed = await executeRun({
     stateDir,
     state: planned.state,
     inputs: await readFrozenRunInputs(stateDir, runId),
     currentSnapshot: sourceSnapshot,
     recordedAt: options.recordedAt ?? (() => new Date().toISOString()),
-  }, options);
+  }, { ...options, executor: selectedExecutor });
+  return routeSelection === undefined
+    ? completed
+    : Object.freeze({ ...completed, route_selection: routeSelection });
 }
 
 export async function runDeterministicHarness(options = {}) {
@@ -778,6 +871,26 @@ export async function runDeterministicHarness(options = {}) {
   });
 }
 
+export async function runOneAttemptRoutedHarness(options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw usageError("Routed run options must be an object.");
+  }
+  if (options.features !== undefined) {
+    throw usageError("Routed run features are derived from frozen run inputs.");
+  }
+  return runHarness({
+    runId: options.runId,
+    runSpec: options.runSpec,
+    routeRequest: {
+      policy: options.policy,
+      riskTier: options.riskTier,
+      adapterRegistry: options.adapterRegistry,
+    },
+    recordedAt: options.recordedAt,
+    onCheckpoint: options.onCheckpoint,
+  });
+}
+
 export async function resumeHarness(options = {}) {
   if (options === null || typeof options !== "object" || Array.isArray(options)) {
     throw usageError("Resume options must be an object.");
@@ -785,7 +898,11 @@ export async function resumeHarness(options = {}) {
   const context = await loadResumeContext(options);
   if (context.state.lifecycle_state === "receipted") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
-    assertEvidenceMatchesState(context.state, evidence);
+    assertEvidenceMatchesState(
+      context.state,
+      evidence,
+      context.inputs.workflowPlan.value,
+    );
     return Object.freeze({
       state: context.state,
       evidence,
@@ -796,7 +913,27 @@ export async function resumeHarness(options = {}) {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
     return finishFromExistingEvidence(context, evidence);
   }
-  return executeRun(context, options);
+  const routeSelection = context.inputs.workflowPlan.value.route_selection;
+  if (routeSelection === undefined) {
+    return executeRun(context, options);
+  }
+  if (options.executor !== undefined) {
+    throw usageError("Routed resume does not accept an injected executor.");
+  }
+  const routed = createOneAttemptRoutedExecutor({
+    selection: routeSelection,
+    adapterRegistry: options.adapterRegistry,
+  });
+  if (routed.executor_kind !== context.state.executor_kind) {
+    throw safetyRefusal(
+      "Resumed route executor kind does not match the frozen run state.",
+    );
+  }
+  const completed = await executeRun(
+    context,
+    { ...options, executor: routed.executor },
+  );
+  return Object.freeze({ ...completed, route_selection: routeSelection });
 }
 
 export async function resumeDeterministicHarness(options = {}) {
@@ -808,7 +945,11 @@ export async function resumeDeterministicHarness(options = {}) {
   }
   if (context.state.lifecycle_state === "receipted") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
-    assertEvidenceMatchesState(context.state, evidence);
+    assertEvidenceMatchesState(
+      context.state,
+      evidence,
+      context.inputs.workflowPlan.value,
+    );
     return Object.freeze({
       state: context.state,
       evidence,
@@ -818,6 +959,11 @@ export async function resumeDeterministicHarness(options = {}) {
   if (context.state.lifecycle_state === "verified") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
     return finishFromExistingEvidence(context, evidence);
+  }
+  if (context.inputs.workflowPlan.value.route_selection !== undefined) {
+    throw usageError(
+      "Routed deterministic runs must resume through resumeHarness with an adapter registry.",
+    );
   }
   return executeRun(context, options);
 }

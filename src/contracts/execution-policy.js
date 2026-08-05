@@ -1,4 +1,6 @@
 import {
+  assertSha256Hex,
+  assertStringArray,
   assertEnum,
   assertObject,
   assertRequiredFields,
@@ -7,11 +9,50 @@ import {
   validateContractBase,
 } from "./common.js";
 import { usageError } from "./errors.js";
+import { sha256CanonicalJSON } from "../core/hash.js";
 
 export const ADAPTIVE_ROUTE_REASONS = Object.freeze([
   "initial",
   "verifier_failure",
   "transient_infra_retry",
+]);
+
+export const ROUTE_RISK_TIERS = Object.freeze([
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+
+export const ROUTE_SELECTION_REASON_CODES = Object.freeze([
+  "allowed_path_count",
+  "context_bytes",
+  "default",
+  "risk_tier",
+  "verifier_kind",
+]);
+
+export const ROUTE_FEATURE_REQUIRED_FIELDS = Object.freeze([
+  "context_bytes",
+  "allowed_path_count",
+  "verifier_kind",
+  "risk_tier",
+]);
+
+export const ROUTE_SELECTION_REQUIRED_FIELDS = Object.freeze([
+  "schema_version",
+  "policy_id",
+  "policy_sha256",
+  "features_sha256",
+  "features",
+  "route_id",
+  "route_index",
+  "reason",
+  "adapter_id",
+  "model_id",
+  "reasoning_effort",
+  "timeout_ms",
+  "reason_codes",
 ]);
 
 export const EXECUTION_POLICY_REQUIRED_FIELDS = Object.freeze([
@@ -59,7 +100,112 @@ function assertRoutes(value) {
     assertString(route.model_id, "route.model_id");
     assertString(route.reasoning_effort, "route.reasoning_effort");
     assertPositiveSafeInteger(route.timeout_ms, "route.timeout_ms");
+    if (route.match !== undefined) {
+      assertObject(route.match, "route.match");
+      const admittedFields = new Set([
+        "max_context_bytes",
+        "max_allowed_paths",
+        "verifier_kinds",
+        "risk_tiers",
+      ]);
+      for (const field of Object.keys(route.match)) {
+        if (!admittedFields.has(field)) {
+          throw usageError(`route.match contains unsupported field '${field}'.`, {
+            field,
+          });
+        }
+      }
+      if (Object.keys(route.match).length === 0) {
+        throw usageError("route.match must contain at least one constraint.");
+      }
+      if (route.match.max_context_bytes !== undefined) {
+        assertPositiveSafeInteger(
+          route.match.max_context_bytes,
+          "route.match.max_context_bytes",
+        );
+      }
+      if (route.match.max_allowed_paths !== undefined) {
+        assertPositiveSafeInteger(
+          route.match.max_allowed_paths,
+          "route.match.max_allowed_paths",
+        );
+      }
+      if (route.match.verifier_kinds !== undefined) {
+        assertStringArray(route.match.verifier_kinds, "route.match.verifier_kinds");
+      }
+      if (route.match.risk_tiers !== undefined) {
+        assertStringArray(
+          route.match.risk_tiers,
+          "route.match.risk_tiers",
+          ROUTE_RISK_TIERS,
+        );
+      }
+    }
   }
+}
+
+function assertNonNegativeSafeInteger(value, field) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw usageError(`${field} must be a non-negative safe integer.`, { field });
+  }
+}
+
+export function validateRouteFeatures(value) {
+  assertObject(value, "Route features");
+  for (const field of ROUTE_FEATURE_REQUIRED_FIELDS) {
+    if (!Object.hasOwn(value, field)) {
+      throw usageError(`Route features are missing required field '${field}'.`, {
+        field,
+      });
+    }
+  }
+  const unsupported = Object.keys(value)
+    .filter((field) => !ROUTE_FEATURE_REQUIRED_FIELDS.includes(field));
+  if (unsupported.length > 0) {
+    throw usageError("Route features contain unsupported fields.", {
+      fields: unsupported.sort(),
+    });
+  }
+  assertNonNegativeSafeInteger(value.context_bytes, "context_bytes");
+  assertNonNegativeSafeInteger(value.allowed_path_count, "allowed_path_count");
+  assertString(value.verifier_kind, "verifier_kind");
+  assertEnum(value.risk_tier, "risk_tier", ROUTE_RISK_TIERS);
+  return deepFreeze(structuredClone(value));
+}
+
+export function validateRouteSelection(value, options = {}) {
+  validateContractBase(
+    value,
+    ROUTE_SELECTION_REQUIRED_FIELDS,
+    "RouteSelection",
+    options,
+  );
+  assertString(value.policy_id, "policy_id");
+  assertSha256Hex(value.policy_sha256, "policy_sha256");
+  assertSha256Hex(value.features_sha256, "features_sha256");
+  const features = validateRouteFeatures(value.features);
+  if (sha256CanonicalJSON(features) !== value.features_sha256) {
+    throw usageError("RouteSelection feature digest mismatch.");
+  }
+  assertString(value.route_id, "route_id");
+  assertNonNegativeSafeInteger(value.route_index, "route_index");
+  if (value.reason !== "initial") {
+    throw usageError("One-attempt RouteSelection reason must be 'initial'.");
+  }
+  assertString(value.adapter_id, "adapter_id");
+  assertString(value.model_id, "model_id");
+  assertString(value.reasoning_effort, "reasoning_effort");
+  assertPositiveSafeInteger(value.timeout_ms, "timeout_ms");
+  assertStringArray(
+    value.reason_codes,
+    "reason_codes",
+    ROUTE_SELECTION_REASON_CODES,
+  );
+  const sorted = [...value.reason_codes].sort();
+  if (value.reason_codes.some((reason, index) => reason !== sorted[index])) {
+    throw usageError("reason_codes must be code-unit sorted.");
+  }
+  return deepFreeze(structuredClone(value));
 }
 
 export function validateExecutionPolicy(value, options = {}) {

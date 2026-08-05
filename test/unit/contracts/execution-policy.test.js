@@ -151,3 +151,25 @@ test("execution policy canonical JSON digest is stable across key order", () => 
 
   assert.equal(sha256CanonicalJSON(left), sha256CanonicalJSON(right));
 });
+
+test("execution policy admits only bounded provider-neutral route constraints", () => {
+  const value = policy();
+  value.routes[0].match = {
+    max_context_bytes: 4096,
+    max_allowed_paths: 3,
+    verifier_kinds: ["command-verifier"],
+    risk_tiers: ["low", "medium"],
+  };
+  assert.deepEqual(validateExecutionPolicy(value).routes[0].match, value.routes[0].match);
+
+  for (const match of [
+    {},
+    { min_price: 1 },
+    { max_context_bytes: 0 },
+    { risk_tiers: ["unknown"] },
+  ]) {
+    const invalid = policy();
+    invalid.routes[0].match = match;
+    assert.throws(() => validateExecutionPolicy(invalid), /route\.match|risk_tiers/u);
+  }
+});
