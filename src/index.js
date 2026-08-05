@@ -92,6 +92,19 @@ export {
   validateAdaptiveSession,
 } from "./contracts/adaptive-session.js";
 export {
+  CONTEXT_PACK_ENTRY_REQUIRED_FIELDS,
+  CONTEXT_PACK_EXCERPT_REQUIRED_FIELDS,
+  CONTEXT_PACK_FALLBACK_REASONS,
+  CONTEXT_PACK_OMISSION_REASONS,
+  CONTEXT_PACK_POLICY_REQUIRED_FIELDS,
+  CONTEXT_PACK_REQUIRED_FIELDS,
+  CONTEXT_PACK_SELECTION_REASONS,
+  CONTEXT_PACK_SELECTION_STATUSES,
+  freezeContextPack,
+  validateContextPack,
+  validateContextPackPolicy,
+} from "./contracts/context-pack.js";
+export {
   canonicalJSONBytes,
   canonicalJSONLine,
   canonicalJSONLineBytes,
@@ -127,6 +140,10 @@ export {
   readRegularFileNoFollow,
 } from "./core/snapshot.js";
 export {
+  DEFAULT_CONTEXT_PACK_POLICY,
+  buildContextPack,
+} from "./core/localization.js";
+export {
   WORKFLOW_STEP_IDS,
   compileWorkflowPlan,
 } from "./core/workflow-compiler.js";
@@ -143,12 +160,15 @@ export {
   runDeterministicHarness,
 } from "./core/run-orchestrator.js";
 export {
+  contextPackArtifactPaths,
   frozenRunInputPaths,
+  readContextPackArtifact,
   readFrozenRunInputs,
   runArtifactRoot,
   runDirectory,
   runWorkspacePath,
   writeFailedRunEvidence,
+  writeContextPackArtifact,
   writeFrozenRunInputs,
   writeRunFailure,
 } from "./core/run-artifacts.js";

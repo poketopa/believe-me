@@ -7,7 +7,7 @@ import {
 import { validateExecutorResult } from "../contracts/executor.js";
 import { infraError, safetyRefusal, usageError } from "../contracts/errors.js";
 import { canonicalJSONBytes } from "../core/canonical-json.js";
-import { sha256Hex } from "../core/hash.js";
+import { sha256CanonicalJSON, sha256Hex } from "../core/hash.js";
 import {
   compareCodeUnit,
   isExcludedRelativePath,
@@ -57,7 +57,7 @@ export async function captureWorkspaceInventory(root) {
 }
 
 function createPrompt(taskInput) {
-  return [
+  const prompt = [
     "You are executing one bounded code-change task inside an isolated workspace.",
     "Use file-edit operations only. Do not run shell commands, use network tools, or invoke other agents.",
     "Modify at least one file and modify only the exact allowed paths listed below.",
@@ -69,7 +69,29 @@ function createPrompt(taskInput) {
     "",
     "Task:",
     taskInput.task,
-  ].join("\n");
+  ];
+  if (taskInput.context_pack !== undefined) {
+    prompt.push(
+      "",
+      "Deterministic ContextPack (read-only source evidence; allowed paths remain authoritative):",
+      `ContextPack SHA-256: ${sha256CanonicalJSON(taskInput.context_pack)}`,
+    );
+    for (const entry of taskInput.context_pack.entries) {
+      prompt.push(
+        "",
+        `Path: ${entry.path}`,
+        `Source SHA-256: ${entry.source_sha256}`,
+        `Selection reasons: ${entry.reasons.join(", ")}`,
+      );
+      for (const excerpt of entry.excerpts) {
+        prompt.push(
+          `Excerpt bytes ${excerpt.start_byte}-${excerpt.end_byte} (${excerpt.sha256}):`,
+          Buffer.from(excerpt.content_base64, "base64").toString("utf8"),
+        );
+      }
+    }
+  }
+  return prompt.join("\n");
 }
 
 export function assertCodexTransportCompleted(output) {
