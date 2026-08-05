@@ -282,3 +282,55 @@ test("Codex transport marks timeout and terminates the process group", async () 
     rmSync(sourceHome, { recursive: true, force: true });
   }
 });
+
+test("Codex transport terminates the process group on parent abort", async () => {
+  const sourceHome = authHome();
+  const controller = new AbortController();
+  let child;
+  let alive = true;
+  const signals = [];
+  try {
+    const transport = createCodexCliTransport({
+      env: { PATH: "/usr/bin", CODEX_HOME: sourceHome },
+      timeoutMs: 10_000,
+      spawnImpl() {
+        child = new EventEmitter();
+        child.pid = 42_003;
+        child.exitCode = null;
+        child.signalCode = null;
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.stdin = new PassThrough();
+        child.kill = () => true;
+        return child;
+      },
+      processKill(_pid, signal) {
+        if (signal === 0) {
+          if (alive) return;
+          return missingProcess();
+        }
+        signals.push(signal);
+        if (alive) {
+          alive = false;
+          queueMicrotask(() => {
+            child.signalCode = signal;
+            child.emit("close", null, signal);
+          });
+        }
+      },
+    });
+    const running = transport({
+      prompt: "task",
+      workspace: "/tmp/work",
+      signal: controller.signal,
+    });
+    controller.abort();
+    const result = await running;
+    assert.equal(result.timed_out, false);
+    assert.equal(result.signal, "SIGTERM");
+    assert.equal(result.process_residue_count, 0);
+    assert.deepEqual(signals, ["SIGTERM"]);
+  } finally {
+    rmSync(sourceHome, { recursive: true, force: true });
+  }
+});

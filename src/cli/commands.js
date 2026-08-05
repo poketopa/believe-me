@@ -20,6 +20,10 @@ import { validateCodexTaskInput } from "../contracts/codex-executor.js";
 import { canonicalJSONLine } from "../core/canonical-json.js";
 import { readRegularFileNoFollow } from "../core/snapshot.js";
 import { readFrozenRunInputs } from "../core/run-artifacts.js";
+import {
+  readAdaptiveSession,
+  resolveAdaptiveSessionWinner,
+} from "../core/adaptive-session.js";
 
 const INIT_CONFIG_FILE = "config.jsonl";
 
@@ -238,6 +242,8 @@ function dependencies(options) {
     readRunState: options.readRunState ?? readRunState,
     readFrozenRunInputs:
       options.readFrozenRunInputs ?? readFrozenRunInputs,
+    readAdaptiveSession:
+      options.readAdaptiveSession ?? readAdaptiveSession,
     runDeterministicHarness:
       options.runDeterministicHarness ?? runDeterministicHarness,
     runHarness: options.runHarness ?? runHarness,
@@ -343,6 +349,48 @@ export async function executeCliCommand(parsed, options = {}) {
       verifier,
     });
     return Object.freeze({
+      run_id: applied.state.run_id,
+      lifecycle_state: applied.state.lifecycle_state,
+      receipt_sha256: applied.receipt_sha256,
+      changed_paths: applied.changed_paths,
+    });
+  }
+
+  if (parsed.command === "apply-session") {
+    const storedSession = await deps.readAdaptiveSession(
+      paths.stateDir,
+      parsed.runId,
+    );
+    const winner = resolveAdaptiveSessionWinner(storedSession.session);
+    const stored = await readBoundRunState(paths.stateDir, winner.child_run_id, deps);
+    if (
+      stored.state.receipt_sha256 !== winner.child_run_evidence_sha256 ||
+      parsed.approve !== winner.child_run_evidence_sha256
+    ) {
+      throw safetyRefusal(
+        "Adaptive winner evidence does not match the approved child receipt.",
+      );
+    }
+    if (stored.state.lifecycle_state === "rejected") {
+      throw verificationFailed("Rejected winning child cannot be applied.", {
+        run_id: winner.child_run_id,
+      });
+    }
+    const verifier = await applyVerifierForStoredRun(
+      paths.stateDir,
+      winner.child_run_id,
+      stored.state,
+      deps,
+    );
+    const applied = await deps.applyEvidenceBundle({
+      projectRoot: paths.projectRoot,
+      stateDir: paths.stateDir,
+      runId: winner.child_run_id,
+      approvalSha256: parsed.approve,
+      verifier,
+    });
+    return Object.freeze({
+      session_id: parsed.runId,
       run_id: applied.state.run_id,
       lifecycle_state: applied.state.lifecycle_state,
       receipt_sha256: applied.receipt_sha256,

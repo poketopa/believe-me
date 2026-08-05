@@ -44,7 +44,8 @@ skill / policy
 - one Roomescape development fixture;
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
 
-The v0.1 CLI surface is `init`, `run`, `status`, `receipt`, and `apply`.
+The CLI surface is `init`, `run`, `status`, `receipt`, `apply`, and the additive
+`apply-session` command for a verified adaptive-session winner.
 
 ## Current proof
 
@@ -114,6 +115,10 @@ believeme status <run-id> --project ./my-project
 believeme receipt <run-id> --project ./my-project
 believeme apply <run-id> \
   --approve <receipt-sha256> \
+  --project ./my-project
+
+believeme apply-session <session-id> \
+  --approve <winner-receipt-sha256> \
   --project ./my-project
 ```
 

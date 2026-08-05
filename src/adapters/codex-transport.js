@@ -212,7 +212,7 @@ export function createCodexCliTransport({
     throw usageError("Codex process dependencies must be functions.");
   }
 
-  return async function codexCliTransport({ prompt, workspace }) {
+  return async function codexCliTransport({ prompt, workspace, signal }) {
     if (typeof prompt !== "string" || prompt.length === 0) {
       throw usageError("Codex prompt must be a non-empty string.");
     }
@@ -234,6 +234,7 @@ export function createCodexCliTransport({
       let settled = false;
       let timeout = null;
       let forceKillTimer = null;
+      let removeAbortListener = () => {};
       const processGroupEnabled = process.platform !== "win32";
       let child;
 
@@ -298,6 +299,7 @@ export function createCodexCliTransport({
         settled = true;
         clearTimeout(timeout);
         clearTimeout(forceKillTimer);
+        removeAbortListener();
         let processResidueCount = await cleanProcessTree();
         let homeCleanup;
         try {
@@ -349,6 +351,22 @@ export function createCodexCliTransport({
         timedOut = true;
         terminateWithGrace();
       }, timeoutMs);
+
+      if (signal !== undefined) {
+        if (
+          signal === null ||
+          typeof signal.aborted !== "boolean" ||
+          typeof signal.addEventListener !== "function" ||
+          typeof signal.removeEventListener !== "function"
+        ) {
+          void finish(null, null, "invalid_abort_signal");
+          return;
+        }
+        const abort = () => terminateWithGrace();
+        signal.addEventListener("abort", abort, { once: true });
+        removeAbortListener = () => signal.removeEventListener("abort", abort);
+        if (signal.aborted) abort();
+      }
 
       child.stdout.on("data", (chunk) => {
         const appended = appendBounded(stdout, chunk, maxCaptureBytes);

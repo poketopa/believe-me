@@ -91,10 +91,12 @@ export {
   ADAPTIVE_ATTEMPT_STATUSES,
   ADAPTIVE_COST_OBSERVATION_STATUSES,
   ADAPTIVE_SESSION_REQUIRED_FIELDS,
+  ADAPTIVE_SESSION_TERMINAL_REASONS,
   ADAPTIVE_TELEMETRY_MISSING_REASONS,
   ADAPTIVE_TIMING_COMPONENTS,
   ADAPTIVE_VERIFICATION_STATUSES,
   freezeAdaptiveSession,
+  validateAdaptiveAttempt,
   validateAdaptiveSession,
 } from "./contracts/adaptive-session.js";
 export {
@@ -160,6 +162,14 @@ export {
   resolveExecutionRoute,
   selectExecutionRoute,
 } from "./core/route-selector.js";
+export {
+  adaptiveSessionPaths,
+  buildAdaptiveRetryContext,
+  readAdaptiveSession,
+  resolveAdaptiveSessionWinner,
+  resumeAdaptiveSession,
+  runAdaptiveSession,
+} from "./core/adaptive-session.js";
 export {
   applyDeterministicChanges,
   assertDeterministicResultMatchesWorkspace,

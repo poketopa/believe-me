@@ -16,6 +16,9 @@ Release.
   and opt-in Codex prompt context.
 - Deterministic one-attempt route selection over bounded observable features, with
   injected provider-neutral adapter/model aliases and frozen route evidence.
+- Verifier-directed adaptive sessions that retain immutable child attempts, enforce
+  retry and aggregate budgets, bind bounded repair context, resume without replaying
+  checkpointed children, and apply only one verified winner.
 
 ## [0.1.0] - 2026-08-05
 

@@ -79,6 +79,21 @@ function assertPositiveSafeInteger(value, field) {
   }
 }
 
+function assertCostBudget(value) {
+  assertRequiredFields(
+    value,
+    ["amount", "currency", "pricing_source"],
+    "cost_budget",
+  );
+  if (typeof value.amount !== "number" || !Number.isFinite(value.amount) || value.amount <= 0) {
+    throw usageError("cost_budget.amount must be a positive finite number.");
+  }
+  if (typeof value.currency !== "string" || !/^[A-Z]{3}$/u.test(value.currency)) {
+    throw usageError("cost_budget.currency must be a three-letter uppercase code.");
+  }
+  assertString(value.pricing_source, "cost_budget.pricing_source");
+}
+
 function assertRoutes(value) {
   if (!Array.isArray(value) || value.length === 0) {
     throw usageError("routes must be a non-empty array.", { field: "routes" });
@@ -189,9 +204,7 @@ export function validateRouteSelection(value, options = {}) {
   }
   assertString(value.route_id, "route_id");
   assertNonNegativeSafeInteger(value.route_index, "route_index");
-  if (value.reason !== "initial") {
-    throw usageError("One-attempt RouteSelection reason must be 'initial'.");
-  }
+  assertEnum(value.reason, "reason", ADAPTIVE_ROUTE_REASONS);
   assertString(value.adapter_id, "adapter_id");
   assertString(value.model_id, "model_id");
   assertString(value.reasoning_effort, "reasoning_effort");
@@ -219,6 +232,10 @@ export function validateExecutionPolicy(value, options = {}) {
   assertPositiveSafeInteger(value.attempt_budget, "attempt_budget");
   assertPositiveSafeInteger(value.token_budget, "token_budget");
   assertPositiveSafeInteger(value.wall_budget_ms, "wall_budget_ms");
+  if (value.cost_budget !== undefined) {
+    assertObject(value.cost_budget, "cost_budget");
+    assertCostBudget(value.cost_budget);
+  }
   assertRoutes(value.routes);
   assertObject(value.schema_version, "schema_version");
   return deepFreeze(structuredClone(value));

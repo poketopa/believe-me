@@ -128,6 +128,24 @@ test("documented boundary values select constrained then default route", () => {
   assert.deepEqual(over.reason_codes, ["default"]);
 });
 
+test("registered repair reasons select only their authorized route", () => {
+  const selected = selectExecutionRoute({
+    policy: policy(),
+    features: features(),
+    reason: "verifier_failure",
+  });
+  assert.equal(selected.route_id, "future-repair");
+  assert.equal(selected.reason, "verifier_failure");
+  assert.throws(
+    () => selectExecutionRoute({
+      policy: policy(),
+      features: features(),
+      reason: "transient_infra_retry",
+    }),
+    /no route for this reason/u,
+  );
+});
+
 test("selector rejects unmatched policy and authority-bearing feature fields", () => {
   const unmatched = structuredClone(policy());
   unmatched.routes.splice(1);
@@ -136,7 +154,7 @@ test("selector rejects unmatched policy and authority-bearing feature fields", (
       policy: unmatched,
       features: features({ context_bytes: 101 }),
     }),
-    /no matching initial route/u,
+    /no matching route/u,
   );
   assert.throws(
     () => validateRouteFeatures({ ...features(), project_path: "/other" }),

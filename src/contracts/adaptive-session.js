@@ -8,7 +8,11 @@ import {
   validateContractBase,
 } from "./common.js";
 import { usageError } from "./errors.js";
-import { ADAPTIVE_ROUTE_REASONS } from "./execution-policy.js";
+import {
+  ADAPTIVE_ROUTE_REASONS,
+  validateRouteFeatures,
+} from "./execution-policy.js";
+import { sha256CanonicalJSON } from "../core/hash.js";
 
 export const ADAPTIVE_ATTEMPT_STATUSES = Object.freeze([
   "completed",
@@ -44,6 +48,17 @@ export const ADAPTIVE_TIMING_COMPONENTS = Object.freeze([
   "orchestration_ms",
   "localization_ms",
   "routing_ms",
+]);
+
+export const ADAPTIVE_SESSION_TERMINAL_REASONS = Object.freeze([
+  "winner",
+  "terminal_failure",
+  "attempt_budget_exhausted",
+  "token_budget_exhausted",
+  "wall_budget_exhausted",
+  "cost_budget_exhausted",
+  "telemetry_missing",
+  "no_authorized_route",
 ]);
 
 export const ADAPTIVE_SESSION_REQUIRED_FIELDS = Object.freeze([
@@ -209,6 +224,9 @@ function assertAttempt(value, sessionContextDigest, expectedIndex) {
   }
   assertString(value.attempt_id, "attempt.attempt_id");
   assertString(value.child_run_id, "attempt.child_run_id");
+  if (value.attempt_claim_sha256 !== undefined) {
+    assertSha256Hex(value.attempt_claim_sha256, "attempt.attempt_claim_sha256");
+  }
   assertSha256Hex(
     value.child_run_evidence_sha256,
     "attempt.child_run_evidence_sha256",
@@ -218,6 +236,24 @@ function assertAttempt(value, sessionContextDigest, expectedIndex) {
   assertString(value.adapter_id, "attempt.adapter_id");
   assertString(value.model_id, "attempt.model_id");
   assertString(value.reasoning_effort, "attempt.reasoning_effort");
+  if (
+    (value.route_features === undefined) !==
+    (value.route_features_sha256 === undefined)
+  ) {
+    throw usageError(
+      "attempt route features and digest must be present together.",
+    );
+  }
+  if (value.route_features !== undefined) {
+    const routeFeatures = validateRouteFeatures(value.route_features);
+    assertSha256Hex(
+      value.route_features_sha256,
+      "attempt.route_features_sha256",
+    );
+    if (sha256CanonicalJSON(routeFeatures) !== value.route_features_sha256) {
+      throw usageError("attempt route feature digest mismatch.");
+    }
+  }
   assertSha256Hex(value.context_pack_sha256, "attempt.context_pack_sha256");
   if (value.context_pack_sha256 !== sessionContextDigest) {
     throw usageError("attempt context_pack_sha256 must match session context.", {
@@ -231,6 +267,26 @@ function assertAttempt(value, sessionContextDigest, expectedIndex) {
     ADAPTIVE_VERIFICATION_STATUSES,
   );
   assertBoolean(value.winner, "attempt.winner");
+  if (value.retry_context_sha256 !== undefined) {
+    if (value.retry_context_sha256 !== null) {
+      assertSha256Hex(
+        value.retry_context_sha256,
+        "attempt.retry_context_sha256",
+      );
+    }
+    if (
+      (value.route_reason === "initial") !==
+      (value.retry_context_sha256 === null)
+    ) {
+      throw usageError(
+        "Initial attempts require null retry context; later attempts require a digest.",
+        { field: "attempt.retry_context_sha256" },
+      );
+    }
+  }
+  if (value.failure_code !== undefined && value.failure_code !== null) {
+    assertString(value.failure_code, "attempt.failure_code");
+  }
   assertTiming(value.timing, "attempt.timing");
   const usage = assertUsage(
     value.usage,
@@ -264,6 +320,15 @@ function assertAttempt(value, sessionContextDigest, expectedIndex) {
   }
 
   return { usage, cost };
+}
+
+export function validateAdaptiveAttempt(
+  value,
+  { contextPackSha256, expectedIndex = value?.attempt_index } = {},
+) {
+  assertSha256Hex(contextPackSha256, "contextPackSha256");
+  assertAttempt(value, contextPackSha256, expectedIndex);
+  return deepFreeze(structuredClone(value));
 }
 
 function assertAttempts(value, sessionContextDigest) {
@@ -310,7 +375,7 @@ function assertAttempts(value, sessionContextDigest) {
     });
   }
 
-  return { observedUsages, observedCosts, observedTimings };
+  return { observedUsages, observedCosts, observedTimings, winnerCount };
 }
 
 function assertAggregateUsage(value, missingReason, observedUsages) {
@@ -383,10 +448,23 @@ export function validateAdaptiveSession(value, options = {}) {
   assertString(value.session_id, "session_id");
   assertSha256Hex(value.policy_sha256, "policy_sha256");
   assertSha256Hex(value.context_pack_sha256, "context_pack_sha256");
-  const { observedUsages, observedCosts, observedTimings } = assertAttempts(
+  if (value.terminal_reason !== undefined) {
+    assertEnum(
+      value.terminal_reason,
+      "terminal_reason",
+      ADAPTIVE_SESSION_TERMINAL_REASONS,
+    );
+  }
+  const { observedUsages, observedCosts, observedTimings, winnerCount } = assertAttempts(
     value.attempts,
     value.context_pack_sha256,
   );
+  if (
+    value.terminal_reason !== undefined &&
+    ((value.terminal_reason === "winner") !== (winnerCount === 1))
+  ) {
+    throw usageError("Adaptive session terminal reason contradicts its winner count.");
+  }
   assertAggregateUsage(
     value.aggregate_usage,
     value.aggregate_usage_missing_reason,

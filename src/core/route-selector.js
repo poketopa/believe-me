@@ -35,8 +35,8 @@ export function deriveRouteFeatures({
   });
 }
 
-function routeMatches(route, features) {
-  if (route.reason !== "initial") {
+function routeMatches(route, features, reason) {
+  if (route.reason !== reason) {
     return false;
   }
   const match = route.match;
@@ -67,14 +67,21 @@ function reasonCodes(route) {
   return codes.sort();
 }
 
-export function selectExecutionRoute({ policy, features }) {
+export function selectExecutionRoute({ policy, features, reason = "initial" }) {
   const frozenPolicy = validateExecutionPolicy(policy);
   const frozenFeatures = validateRouteFeatures(features);
-  const routeIndex = frozenPolicy.routes.findIndex((route) =>
-    routeMatches(route, frozenFeatures));
-  if (routeIndex === -1) {
-    throw safetyRefusal("Frozen execution policy has no matching initial route.", {
+  if (!frozenPolicy.routes.some((route) => route.reason === reason)) {
+    throw safetyRefusal("Frozen execution policy has no route for this reason.", {
       policy_id: frozenPolicy.policy_id,
+      reason,
+    });
+  }
+  const routeIndex = frozenPolicy.routes.findIndex((route) =>
+    routeMatches(route, frozenFeatures, reason));
+  if (routeIndex === -1) {
+    throw safetyRefusal("Frozen execution policy has no matching route.", {
+      policy_id: frozenPolicy.policy_id,
+      reason,
       features_sha256: sha256CanonicalJSON(frozenFeatures),
     });
   }
@@ -87,7 +94,7 @@ export function selectExecutionRoute({ policy, features }) {
     features: frozenFeatures,
     route_id: route.route_id,
     route_index: routeIndex,
-    reason: route.reason,
+    reason,
     adapter_id: route.adapter_id,
     model_id: route.model_id,
     reasoning_effort: route.reasoning_effort,
