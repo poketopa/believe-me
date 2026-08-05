@@ -205,7 +205,10 @@ tied to Spring.
 `believeme review` is the approval-facing read-only companion to `receipt`. It
 re-validates the stored evidence binding and returns a bounded summary of the
 approved run without re-running the verifier, reading the current working tree,
-or exposing candidate bytes.
+or exposing candidate bytes. Its `stored_evidence_verified` status describes
+stored canonical bytes, receipt hash links, minimal result/verifier semantics,
+and run-state binding only; it is not a signature, a fresh verifier run, or a
+current-source freshness claim.
 
 ## Development
 

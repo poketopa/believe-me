@@ -9,7 +9,9 @@ Release.
 
 - A read-only `review` CLI command that re-validates stored receipt-bound
   evidence and returns a bounded approval summary without re-running the
-  verifier or exposing candidate bytes.
+  verifier or exposing candidate bytes. The explicit
+  `stored_evidence_verified` status does not claim signed provenance or current
+  source freshness.
 
 ## [0.2.0] - 2026-08-06
 

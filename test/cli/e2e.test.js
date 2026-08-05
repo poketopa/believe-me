@@ -159,7 +159,7 @@ test("CLI process runs, receipts, and explicitly applies the Spring proof", asyn
     "--project",
     projectRoot,
   ]), "review");
-  assert.equal(review.data.review_status, "verified");
+  assert.equal(review.data.review_status, "stored_evidence_verified");
   assert.equal(review.data.lifecycle_state, "receipted");
   assert.equal(review.data.approval.receipt_sha256, run.data.receipt_sha256);
   assert.deepEqual(review.data.changes, [{
@@ -211,7 +211,7 @@ test("CLI process runs, receipts, and explicitly applies the Spring proof", asyn
     projectRoot,
   ]), "review");
   assert.equal(appliedReview.data.lifecycle_state, "applied");
-  assert.equal(appliedReview.data.review_status, "verified");
+  assert.equal(appliedReview.data.review_status, "stored_evidence_verified");
   assert.deepEqual(appliedReview.data.approval, review.data.approval);
   assert.deepEqual(appliedReview.data.bindings, review.data.bindings);
 });

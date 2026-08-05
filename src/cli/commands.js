@@ -27,6 +27,13 @@ import {
 } from "../core/adaptive-session.js";
 
 const INIT_CONFIG_FILE = "config.jsonl";
+const REVIEWABLE_LIFECYCLE_STATES = Object.freeze([
+  "verified",
+  "receipted",
+  "approved",
+  "applied",
+  "rolled_back",
+]);
 
 function resolveProjectPath(cwd, project = ".") {
   return resolve(cwd, project);
@@ -190,11 +197,21 @@ async function readBoundRunState(stateDir, runId, dependencies) {
   return stored;
 }
 
-async function readBoundReceipt(stateDir, runId, dependencies) {
+async function readBoundReceipt(stateDir, runId, dependencies, options = {}) {
   const stored = await readBoundRunState(stateDir, runId, dependencies);
   if (stored.state.lifecycle_state === "rejected") {
     throw verificationFailed("Rejected run did not produce an approved receipt.", {
       run_id: runId,
+    });
+  }
+  if (
+    options.review === true &&
+    !REVIEWABLE_LIFECYCLE_STATES.includes(stored.state.lifecycle_state)
+  ) {
+    throw safetyRefusal("Run lifecycle state cannot be reviewed.", {
+      run_id: runId,
+      lifecycle_state: stored.state.lifecycle_state,
+      allowed_lifecycle_states: REVIEWABLE_LIFECYCLE_STATES,
     });
   }
   if (!stored.state.receipt_sha256) {
@@ -306,6 +323,7 @@ async function readReviewCommand(stateDir, runId, dependencies) {
     stateDir,
     runId,
     dependencies,
+    { review: true },
   );
   const verification = assertReviewVerification(evidence.verification);
   const result = assertReviewResult(evidence.result, state);
@@ -314,7 +332,7 @@ async function readReviewCommand(stateDir, runId, dependencies) {
     run_id: runId,
     lifecycle_state: state.lifecycle_state,
     state_sha256: stateSha256,
-    review_status: "verified",
+    review_status: "stored_evidence_verified",
     approval: Object.freeze({
       method: evidence.receipt.approval_method,
       receipt_sha256: evidence.receipt_sha256,

@@ -53,7 +53,9 @@ atomic apply, and resume contracts.
 
 `review` is the read-only approval companion to `receipt`: it checks the stored
 receipt binding again and surfaces only the validated evidence summary, not raw
-candidate bytes or verifier streams.
+candidate bytes or verifier streams. `stored_evidence_verified` deliberately
+means stored content integrity and state binding, not authenticated identity,
+current-source freshness, or a fresh verifier execution.
 
 ## Verifier selection
 
