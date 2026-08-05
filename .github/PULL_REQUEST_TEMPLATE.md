@@ -1,7 +1,9 @@
 ## Summary
 
-- What behavior changes?
-- Which issue does this close?
+- Closes #
+- Principal intervention:
+- Behavior or documentation changed:
+- Follow-up issues (or `none`):
 
 ## Verification
 
@@ -11,17 +13,39 @@
 - [ ] `npm run pack:check` passes.
 - [ ] `npm run release:check` passes, or release impact is not applicable.
 
+## Benchmark and ablation evidence
+
+- Applicability: <!-- applicable / not applicable, with reason -->
+- Frozen control and treatment:
+- Evidence or canonical ledger/report links:
+- Observed regressions, unfavorable outcomes, and missing data:
+
+## Claim boundary
+
+<!-- State exactly what this PR's evidence supports and what it does not support. -->
+
 ## Contract and risk review
 
 - [ ] Lifecycle/state-machine impact considered.
 - [ ] Evidence/receipt schema impact considered.
 - [ ] Compatibility and migration impact considered.
 - [ ] Security/trust-boundary impact considered.
-- [ ] Rollback path described.
-- [ ] Reused source and provenance recorded.
+
+### Risk and rollback
+
+<!-- Describe the material risks and the disable, revert, or migration path. -->
+
+### Provenance
+
+<!-- Record reused source, generated artifacts, experiment inputs, and relevant SHAs. -->
 
 ## Release impact
 
+- Release type (select one):
+  - [ ] `none`
+  - [ ] `patch`
+  - [ ] `minor`
+  - [ ] `breaking`
 - [ ] Changelog impact considered.
 - [ ] Package metadata, packed-file allowlist, and generated release notes
       considered.
