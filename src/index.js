@@ -34,6 +34,14 @@ export {
   validateRunSpec,
 } from "./contracts/run-spec.js";
 export {
+  EXECUTOR_INPUT_REQUIRED_FIELDS,
+  EXECUTOR_RESULT_REQUIRED_FIELDS,
+  freezeExecutorInput,
+  freezeExecutorResult,
+  validateExecutorInput,
+  validateExecutorResult,
+} from "./contracts/executor.js";
+export {
   DETERMINISTIC_EXECUTOR_INPUT_REQUIRED_FIELDS,
   DETERMINISTIC_EXECUTOR_RESULT_REQUIRED_FIELDS,
   freezeDeterministicExecutorInput,
@@ -41,6 +49,10 @@ export {
   validateDeterministicExecutorInput,
   validateDeterministicExecutorResult,
 } from "./contracts/deterministic-executor.js";
+export {
+  validateCodexExecutorResultEvidence,
+  validateCodexTaskInput,
+} from "./contracts/codex-executor.js";
 export {
   LIFECYCLE_STATES,
   RUN_STATE_IMMUTABLE_FIELDS,
@@ -100,7 +112,9 @@ export {
 } from "./core/workspace.js";
 export {
   deterministicRunDebugPaths,
+  resumeHarness,
   resumeDeterministicHarness,
+  runHarness,
   runDeterministicHarness,
 } from "./core/run-orchestrator.js";
 export {
@@ -130,6 +144,21 @@ export {
   SPRING_VERIFIER_ADAPTER_ID,
   runSpringVerifier,
 } from "./adapters/spring-verifier.js";
+export {
+  inspectCodexEvents,
+  parseCodexJsonl,
+} from "./adapters/codex-events.js";
+export {
+  createCodexExecutor,
+} from "./adapters/codex-executor.js";
+export {
+  DEFAULT_MAX_CAPTURE_BYTES,
+  DEFAULT_TIMEOUT_MS,
+  codexExecCommand,
+  createCodexCliTransport,
+  createIsolatedCodexHome,
+  sanitizeCodexEnv,
+} from "./adapters/codex-transport.js";
 export {
   parseCliArgs,
 } from "./cli/args.js";

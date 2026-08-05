@@ -18,9 +18,12 @@ import {
   evidencePaths,
   infraError,
   readRunState,
+  resumeHarness,
   resumeDeterministicHarness,
+  runHarness,
   runDeterministicHarness,
   sha256Hex,
+  usageError,
   writeEvidenceBundle,
 } from "../../src/index.js";
 
@@ -407,6 +410,154 @@ test("run rejects an empty candidate before creating a run", async () => {
     () => readRunState(setup.stateDir, setup.runId),
     (error) => error.code === "ENOENT",
   );
+});
+
+test("generic codex run validates input before creating a run when adapter rejects it", async () => {
+  const setup = await createRunSetup({ runId: "run-codex-preflight" });
+  const manifestPath = join(dirname(setup.inputPath), "codex-skill-manifest.json");
+  await writeJson(manifestPath, {
+    schema_version: { major: 1 },
+    manifest_id: "codex-test",
+    name: "Codex test policy",
+    policy_id: "codex-test",
+    executor_kinds: ["codex"],
+    input_schema_ref: "codex-task-input/v1",
+    policy_rules: { max_changes: 1 },
+  });
+  const runSpec = {
+    ...setup.runSpec,
+    skill_manifest_path: manifestPath,
+    executor_kind: "codex",
+  };
+
+  await assert.rejects(
+    () => runHarness({
+      runId: setup.runId,
+      runSpec,
+      executorInputValidator() {
+        throw usageError("Codex task input is invalid.");
+      },
+    }),
+    (error) => error.code === "usage_error" && error.exitCode === 2,
+  );
+  await assert.rejects(
+    () => readRunState(setup.stateDir, setup.runId),
+    (error) => error.code === "ENOENT",
+  );
+});
+
+test("generic codex run requires an injected executor and rejects with typed infra error", async () => {
+  const setup = await createRunSetup({ runId: "run-codex-missing-executor" });
+  const manifestPath = join(dirname(setup.inputPath), "codex-skill-manifest.json");
+  await writeJson(manifestPath, {
+    schema_version: { major: 1 },
+    manifest_id: "codex-test",
+    name: "Codex test policy",
+    policy_id: "codex-test",
+    executor_kinds: ["codex"],
+    input_schema_ref: "codex-task-input/v1",
+    policy_rules: { max_changes: 1 },
+  });
+
+  await assert.rejects(
+    () => runHarness({
+      runId: setup.runId,
+      runSpec: {
+        ...setup.runSpec,
+        skill_manifest_path: manifestPath,
+        executor_kind: "codex",
+      },
+      verifier: async () => passedVerifier(),
+      issuedAt,
+      recordedAt,
+    }),
+    (error) =>
+      error.code === "infra_error" &&
+      error.exitCode === 10 &&
+      error.details.executor_kind === "codex",
+  );
+  assert.equal(
+    (await readRunState(setup.stateDir, setup.runId)).state.lifecycle_state,
+    "rejected",
+  );
+  const failure = JSON.parse(
+    await readFile(
+      join(deterministicRunDebugPaths(setup.stateDir, setup.runId).artifact_root, "failure.jsonl"),
+      "utf8",
+    ),
+  );
+  assert.equal(failure.executor_kind, "codex");
+});
+
+test("generic codex run preserves executor evidence and resumes from frozen input", async () => {
+  const setup = await createRunSetup({ runId: "run-codex-success" });
+  const manifestPath = join(dirname(setup.inputPath), "codex-skill-manifest.json");
+  await writeJson(manifestPath, {
+    schema_version: { major: 1 },
+    manifest_id: "codex-test",
+    name: "Codex test policy",
+    policy_id: "codex-test",
+    executor_kinds: ["codex"],
+    input_schema_ref: "codex-task-input/v1",
+    policy_rules: { max_changes: 1 },
+  });
+  const result = {
+    schema_version: { major: 1 },
+    run_id: setup.runId,
+    executor_kind: "codex",
+    status: "completed",
+    changes: [setup.change],
+    executor_evidence: {
+      event_log_sha256: "b".repeat(64),
+      transcript_events: 3,
+    },
+  };
+  let executorCalls = 0;
+
+  await assert.rejects(
+    () => runHarness({
+      runId: setup.runId,
+      runSpec: {
+        ...setup.runSpec,
+        skill_manifest_path: manifestPath,
+        executor_kind: "codex",
+      },
+      executorInputValidator(rawInput) {
+        return { ...rawInput, adapter: "codex" };
+      },
+      executor: async ({ workspaceRoot, input, plan }) => {
+        executorCalls += 1;
+        assert.equal(input.executor_kind, "codex");
+        assert.equal(input.input.adapter, "codex");
+        assert.equal(plan.executor_kind, "codex");
+        await writeFile(join(workspaceRoot, setup.change.path), "candidate");
+        return result;
+      },
+      verifier: async () => passedVerifier(),
+      issuedAt,
+      recordedAt,
+      onCheckpoint({ state }) {
+        if (state.lifecycle_state === "verified") {
+          throw new Error("interrupt after codex verification");
+        }
+      },
+    }),
+    /interrupt after codex verification/,
+  );
+
+  const completed = await resumeHarness({
+    stateDir: setup.stateDir,
+    runId: setup.runId,
+    recordedAt,
+  });
+  assert.equal(executorCalls, 1);
+  assert.equal(completed.state.executor_kind, "codex");
+  assert.equal(completed.evidence.result.executor_kind, "codex");
+  assert.equal(
+    completed.evidence.result.executor_evidence.event_log_sha256,
+    "b".repeat(64),
+  );
+  assert.equal(completed.state.lifecycle_state, "receipted");
 });
 
 test("run id is exclusive and an existing run must use resume", async () => {

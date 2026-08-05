@@ -2,17 +2,21 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { runSpringVerifier } from "../adapters/spring-verifier.js";
+import { createCodexExecutor } from "../adapters/codex-executor.js";
 import { applyEvidenceBundle } from "../core/apply.js";
 import { readEvidenceBundle } from "../core/evidence.js";
-import { runDeterministicHarness } from "../core/run-orchestrator.js";
+import {
+  runDeterministicHarness,
+  runHarness,
+} from "../core/run-orchestrator.js";
 import { readRunState } from "../core/state-store.js";
 import {
-  infraError,
   notFound,
   safetyRefusal,
   usageError,
   verificationFailed,
 } from "../contracts/errors.js";
+import { validateCodexTaskInput } from "../contracts/codex-executor.js";
 import { canonicalJSONLine } from "../core/canonical-json.js";
 import { readRegularFileNoFollow } from "../core/snapshot.js";
 
@@ -226,10 +230,12 @@ async function readReceiptCommand(stateDir, runId, dependencies) {
 function dependencies(options) {
   return {
     applyEvidenceBundle: options.applyEvidenceBundle ?? applyEvidenceBundle,
+    createCodexExecutor: options.createCodexExecutor ?? createCodexExecutor,
     readEvidenceBundle: options.readEvidenceBundle ?? readEvidenceBundle,
     readRunState: options.readRunState ?? readRunState,
     runDeterministicHarness:
       options.runDeterministicHarness ?? runDeterministicHarness,
+    runHarness: options.runHarness ?? runHarness,
     runIdFactory: options.runIdFactory ?? (() => `run-${randomUUID()}`),
     verifyAppliedProject: options.verifyAppliedProject ?? (async (projectRoot) => {
       const result = await runSpringVerifier({ fixtureRoot: projectRoot });
@@ -248,13 +254,8 @@ export async function executeCliCommand(parsed, options = {}) {
   }
 
   if (parsed.command === "run") {
-    if (parsed.executor === "codex") {
-      throw infraError("Codex executor adapter is not available in Milestone 1.", {
-        executor_kind: "codex",
-      });
-    }
     const runId = deps.runIdFactory();
-    const completed = await deps.runDeterministicHarness({
+    const runOptions = {
       runId,
       runSpec: {
         schema_version: { major: 1 },
@@ -264,7 +265,14 @@ export async function executeCliCommand(parsed, options = {}) {
         input_path: parsed.input,
         executor_kind: parsed.executor,
       },
-    });
+    };
+    const completed = parsed.executor === "codex"
+      ? await deps.runHarness({
+          ...runOptions,
+          executor: deps.createCodexExecutor(),
+          executorInputValidator: validateCodexTaskInput,
+        })
+      : await deps.runDeterministicHarness(runOptions);
     return Object.freeze({
       run_id: completed.state.run_id,
       lifecycle_state: completed.state.lifecycle_state,

@@ -6,9 +6,9 @@ import { validateSkillManifest } from "../contracts/skill-manifest.js";
 import { validateWorkflowPlan } from "../contracts/workflow-plan.js";
 import { deepFreeze } from "../contracts/common.js";
 import {
-  validateDeterministicExecutorInput,
-  validateDeterministicExecutorResult,
-} from "../contracts/deterministic-executor.js";
+  validateExecutorInput,
+  validateExecutorResult,
+} from "../contracts/executor.js";
 import { canonicalJSONLine, canonicalJSONLineBytes } from "./canonical-json.js";
 import { sha256CanonicalJSON, sha256Hex } from "./hash.js";
 import { readRegularFileNoFollow } from "./snapshot.js";
@@ -164,7 +164,7 @@ export async function writeFrozenRunInputs(options) {
     runSpec: validateRunSpec(runSpec),
     sourceSnapshot: validateSourceSnapshot(sourceSnapshot),
     workflowPlan: validateWorkflowPlan(workflowPlan),
-    executorInput: validateDeterministicExecutorInput(executorInput),
+    executorInput: validateExecutorInput(executorInput),
   };
   const written = {};
   for (const key of Object.keys(INPUT_FILES)) {
@@ -197,7 +197,7 @@ export async function readFrozenRunInputs(stateDir, runId) {
       sha256: raw.workflowPlan.sha256,
     }),
     executorInput: Object.freeze({
-      value: validateDeterministicExecutorInput(raw.executorInput.value, {
+      value: validateExecutorInput(raw.executorInput.value, {
         persisted: true,
       }),
       sha256: raw.executorInput.sha256,
@@ -221,7 +221,7 @@ export async function writeFailedRunEvidence(options) {
   if (result !== undefined) {
     written.result = await writeCanonicalPair(
       pairPaths(artifactRoot, "result.jsonl"),
-      validateDeterministicExecutorResult(result, { persisted: true }),
+      validateExecutorResult(result, { persisted: true }),
     );
   }
   if (verification !== undefined) {

@@ -19,8 +19,8 @@ not runtime dependencies or mandatory package boundaries.
 
 ## First vertical slice
 
-The first proof uses one Java/Spring task and a deterministic executor before a
-real AI provider is admitted:
+The first proof uses one Java/Spring task through both a deterministic executor
+and a bounded real-provider adapter:
 
 1. load a versioned skill manifest;
 2. compile an immutable workflow plan;
@@ -31,7 +31,14 @@ real AI provider is admitted:
 7. refuse stale source;
 8. apply atomically after explicit approval.
 
-Steps 1-8 are now implemented for the deterministic executor. The integration
+Steps 1-8 are implemented for the deterministic and Codex executor paths. The
+executor-neutral integration proof first uses a fake Codex process to make the
+provider boundary repeatable in CI, then derives the candidate from actual
+workspace bytes, binds JSONL event evidence, and preserves the original source
+until receipt approval. An opt-in authenticated smoke repeats the boundary
+repair through `codex exec` without making external credentials a CI dependency.
+
+The deterministic integration
 proof starts from an intentionally incorrect Roomescape deadline boundary,
 restores the candidate in an isolated workspace, runs the fixture-owned Gradle
 verifier, and produces a receipt-bound non-empty change set. The original
@@ -39,11 +46,10 @@ baseline remains unchanged until the separate approval/apply operation. The
 process-level CLI proof then rejects an incorrect receipt approval, accepts the
 bound receipt hash, reruns verification, and reaches `applied`.
 
-The stable pre-release JSONL CLI now exposes `init`, `run`, `status`, `receipt`,
-and `apply`, with one canonical record per command outcome and documented exit
-codes. The Codex executor remains a separate follow-up milestone and currently
-returns a typed unavailable-adapter failure without changing the deterministic
-proof.
+The stable pre-release JSONL CLI exposes `init`, `run`, `status`, `receipt`, and
+`apply`, with one canonical record per command outcome and documented exit
+codes. Both executor kinds reuse the same state, receipt, explicit approval,
+atomic apply, and resume contracts.
 
 ## Core contracts
 
@@ -52,6 +58,7 @@ proof.
 - `RunSpec`
 - `RunState`
 - `EvidenceReceipt`
+- shared `ExecutorInput` and apply-compatible `ExecutorResult`
 
 These contracts are language-neutral. Java/Spring behavior belongs only to the
 reference adapter.

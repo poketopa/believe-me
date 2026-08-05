@@ -15,6 +15,10 @@ import {
 import { validateRunSpec } from "../contracts/run-spec.js";
 import { validateSkillManifest } from "../contracts/skill-manifest.js";
 import {
+  validateExecutorInput,
+  validateExecutorResult,
+} from "../contracts/executor.js";
+import {
   validateDeterministicExecutorInput,
   validateDeterministicExecutorResult,
 } from "../contracts/deterministic-executor.js";
@@ -244,6 +248,13 @@ function failureArtifact(runId, phase, error, recordedAt) {
   };
 }
 
+function runFailureArtifact(state, phase, error, recordedAt) {
+  return Object.freeze({
+    ...failureArtifact(state.run_id, phase, error, recordedAt),
+    executor_kind: state.executor_kind,
+  });
+}
+
 function failedVerificationArtifact(error) {
   if (error?.details?.result && typeof error.details.result === "object") {
     return error.details.result;
@@ -268,8 +279,8 @@ function normalizePhaseError(error, phase) {
 
 async function rejectFailedRun(context, phase, error, result) {
   const artifactRoot = context.state.artifact_root;
-  const failure = failureArtifact(
-    context.state.run_id,
+  const failure = runFailureArtifact(
+    context.state,
     phase,
     error,
     context.recordedAt(),
@@ -319,6 +330,7 @@ function assertFrozenBindings(state, inputs) {
     ["manifest_sha256", state.manifest_sha256, manifest.sha256],
     ["workflow_plan_sha256", state.workflow_plan_sha256, workflowPlan.sha256],
     ["source_snapshot_sha256", state.source_snapshot_sha256, sourceSnapshot.value.sha256],
+    ["run_spec.executor_kind", state.executor_kind, runSpec.value.executor_kind],
     ["plan.run_id", state.run_id, plan.run_id],
     ["plan.manifest_sha256", state.manifest_sha256, plan.manifest_sha256],
     ["plan.source_snapshot_sha256", state.source_snapshot_sha256, plan.source_snapshot_sha256],
@@ -367,11 +379,14 @@ function assertEvidenceMatchesState(state, evidence) {
       });
     }
   }
-  const result = validateDeterministicExecutorResult(evidence.result, {
+  const result = validateExecutorResult(evidence.result, {
     persisted: true,
   });
   if (result.run_id !== state.run_id) {
     throw safetyRefusal("Evidence result run id does not match run state.");
+  }
+  if (result.executor_kind !== state.executor_kind) {
+    throw safetyRefusal("Evidence result executor kind does not match run state.");
   }
   if (evidence.verification?.status !== "passed") {
     throw safetyRefusal("Evidence verification is not a passed result.");
@@ -514,22 +529,35 @@ async function executeRun(context, options) {
     expectedSnapshotSha256: state.source_snapshot_sha256,
   });
 
-  const executor = options.executor ?? (async ({ workspaceRoot: root, input }) =>
-    applyDeterministicChanges({
-      workspaceRoot: root,
-      executorInput: input,
-      validateResult: validateDeterministicExecutorResult,
-    }));
+  let executor = options.executor;
+  if (executor === undefined && state.executor_kind === "deterministic") {
+    executor = async ({ workspaceRoot: root, input }) =>
+      applyDeterministicChanges({
+        workspaceRoot: root,
+        executorInput: input,
+        validateResult: validateDeterministicExecutorResult,
+      });
+  }
+  if (executor === undefined) {
+    executor = async () => {
+      throw infraError("Executor is not available for this run.", {
+        executor_kind: state.executor_kind,
+      });
+    };
+  }
 
   let result;
   try {
-    result = validateDeterministicExecutorResult(await executor({
+    result = validateExecutorResult(await executor({
       workspaceRoot,
       input: context.inputs.executorInput.value,
       plan: context.inputs.workflowPlan.value,
     }));
     if (result.run_id !== state.run_id) {
       throw safetyRefusal("Executor result run id does not match run state.");
+    }
+    if (result.executor_kind !== state.executor_kind) {
+      throw safetyRefusal("Executor result kind does not match run state.");
     }
     await assertDeterministicResultMatchesWorkspace({
       workspaceRoot,
@@ -621,15 +649,12 @@ async function executeRun(context, options) {
   return finishFromExistingEvidence(context, evidence);
 }
 
-export async function runDeterministicHarness(options = {}) {
+export async function runHarness(options = {}) {
   if (options === null || typeof options !== "object" || Array.isArray(options)) {
     throw usageError("Run options must be an object.");
   }
   const runId = validateRunId(options.runId);
   const rawSpec = validateRunSpec(options.runSpec);
-  if (rawSpec.executor_kind !== "deterministic") {
-    throw usageError("Milestone 1 run orchestration requires deterministic executor.");
-  }
 
   const projectRoot = await canonicalProjectRoot(rawSpec.project_path);
   const stateDir = await canonicalStateDir(projectRoot, rawSpec.state_dir);
@@ -642,23 +667,27 @@ export async function runDeterministicHarness(options = {}) {
   if (rawInput === null || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     throw usageError("Executor input must be an object.");
   }
+  const normalizedRawInput =
+    typeof options.executorInputValidator === "function"
+      ? options.executorInputValidator(rawInput)
+      : rawInput;
+  if (
+    normalizedRawInput === null ||
+    typeof normalizedRawInput !== "object" ||
+    Array.isArray(normalizedRawInput)
+  ) {
+    throw usageError("Executor input validator must return an object.");
+  }
 
   const sourceSnapshot = await createProjectSnapshot(projectRoot);
   const manifestSha256 = sha256CanonicalJSONLine(manifest);
-  const executorInput = validateDeterministicExecutorInput({
+  const executorInput = validateExecutorInput({
     schema_version: { major: 1 },
     run_id: runId,
     manifest_sha256: manifestSha256,
     source_snapshot_sha256: sourceSnapshot.sha256,
-    executor_kind: "deterministic",
-    input: rawInput,
-  });
-  validateDeterministicExecutorResult({
-    schema_version: { major: 1 },
-    run_id: runId,
-    executor_kind: "deterministic",
-    status: "completed",
-    changes: rawInput.changes,
+    executor_kind: runSpec.executor_kind,
+    input: normalizedRawInput,
   });
 
   const runSpecSha256 = sha256Hex(canonicalJSONLineBytes(runSpec));
@@ -696,7 +725,7 @@ export async function runDeterministicHarness(options = {}) {
     manifest_sha256: manifestSha256,
     workflow_plan_sha256: workflowPlanSha256,
     source_snapshot_sha256: sourceSnapshot.sha256,
-    executor_kind: "deterministic",
+    executor_kind: runSpec.executor_kind,
     artifact_root: artifactRoot,
   });
   const planned = await advanceStoredRunState(
@@ -715,11 +744,67 @@ export async function runDeterministicHarness(options = {}) {
   }, options);
 }
 
-export async function resumeDeterministicHarness(options = {}) {
+export async function runDeterministicHarness(options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw usageError("Run options must be an object.");
+  }
+  const rawSpec = validateRunSpec(options.runSpec);
+  if (rawSpec.executor_kind !== "deterministic") {
+    throw usageError("Deterministic run requires deterministic executor.");
+  }
+  return runHarness({
+    ...options,
+    executorInputValidator(rawInput) {
+      const normalized = typeof options.executorInputValidator === "function"
+        ? options.executorInputValidator(rawInput)
+        : rawInput;
+      if (
+        normalized === null ||
+        typeof normalized !== "object" ||
+        Array.isArray(normalized)
+      ) {
+        throw usageError("Executor input validator must return an object.");
+      }
+      validateDeterministicExecutorResult({
+        schema_version: { major: 1 },
+        run_id: validateRunId(options.runId),
+        executor_kind: "deterministic",
+        status: "completed",
+        changes: normalized.changes,
+      });
+      return normalized;
+    },
+  });
+}
+
+export async function resumeHarness(options = {}) {
   if (options === null || typeof options !== "object" || Array.isArray(options)) {
     throw usageError("Resume options must be an object.");
   }
   const context = await loadResumeContext(options);
+  if (context.state.lifecycle_state === "receipted") {
+    const evidence = await readEvidenceBundle(context.state.artifact_root);
+    assertEvidenceMatchesState(context.state, evidence);
+    return Object.freeze({
+      state: context.state,
+      evidence,
+      workspace_root: runWorkspacePath(context.stateDir, context.state.run_id),
+    });
+  }
+  if (context.state.lifecycle_state === "verified") {
+    const evidence = await readEvidenceBundle(context.state.artifact_root);
+    return finishFromExistingEvidence(context, evidence);
+  }
+  return executeRun(context, options);
+}
+
+export async function resumeDeterministicHarness(options = {}) {
+  const context = await loadResumeContext(options);
+  if (context.state.executor_kind !== "deterministic") {
+    throw usageError("Deterministic resume requires deterministic executor.", {
+      executor_kind: context.state.executor_kind,
+    });
+  }
   if (context.state.lifecycle_state === "receipted") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
     assertEvidenceMatchesState(context.state, evidence);

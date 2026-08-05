@@ -19,6 +19,7 @@
   ],
   "scripts": {
     "check": "node scripts/check-syntax.js",
+    "smoke:codex": "node scripts/live-codex-smoke.js",
     "test": "node scripts/run-node-tests.js",
     "pack:check": "npm pack --dry-run"
   },
