@@ -37,12 +37,21 @@ The pre-release CLI surface is `init`, `run`, `status`, `receipt`, and `apply`.
 
 ## Current proof
 
-The repository now includes the deterministic run orchestrator, the
-contract/evidence/apply kernel, and the first real verifier adapter. A run
+The repository now includes an executor-neutral run orchestrator, deterministic
+and bounded Codex executors, the contract/evidence/apply kernel, and the first
+real verifier adapter. A run
 freezes its manifest, run spec, source snapshot, workflow plan, and executor
 input before creating an isolated workspace. Only a non-empty candidate that
 passes verification can reach `receipted`; executor and verifier failures keep
 typed evidence while leaving the source project unchanged.
+
+The Codex adapter invokes the official non-interactive JSONL surface with a
+fixed argument array and stdin prompt. It copies only `auth.json` into an
+ephemeral Codex home, ignores user config and exec rules, disables web, shell,
+plugin, browser, computer-use, and multi-agent tools, and confines edits to the
+isolated workspace. The harness derives candidate bytes from the workspace,
+rejects deletions and out-of-allowlist changes, and binds credential-screened raw
+events, usage, and execution configuration into the result receipt.
 
 The canonical Roomescape Spring fixture proves the strict owner cancellation
 boundary, manager exemption, unchanged not-found behavior, first-waiting
@@ -77,10 +86,26 @@ verifiable-agent-harness apply <run-id> \
   --project ./my-project
 ```
 
-The deterministic executor accepts a declared candidate change set and is the
-implemented Milestone 1 proof path. The `codex` executor value is reserved by
-the stable CLI contract but currently returns a typed `infra_error` with exit
-code 10; it never silently falls back to deterministic execution.
+The deterministic executor accepts a declared candidate change set. The Codex
+executor accepts a task and explicit file allowlist:
+
+```json
+{
+  "task": "Fix the owner cancellation deadline boundary.",
+  "allowed_paths": [
+    "src/main/java/com/roomescape/booking/application/ReservationService.java"
+  ]
+}
+```
+
+Use a manifest whose `executor_kinds` includes `codex` and whose
+`input_schema_ref` is `codex-executor-input/v1`, then pass `--executor codex`.
+The Codex CLI must be installed and authenticated with `codex login`. Missing
+authentication, a missing executable, timeouts, malformed events, and cleanup
+failures return typed `infra_error` records and never fall back to deterministic
+execution. The adapter follows the official
+[Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
+contract.
 
 | Exit | Meaning |
 | ---: | --- |
@@ -110,9 +135,10 @@ file remains after an interrupted recovery attempt, the harness preserves it as
 evidence and refuses further apply attempts until a manual investigation removes
 or archives that recovery lock.
 
-Interrupted deterministic runs resume only after revalidating the frozen input,
-plan, manifest, source-tree, and evidence hashes. A verified run with a complete
-receipt can finish its lifecycle without executing the candidate again.
+Interrupted runs resume only after revalidating the frozen input, plan,
+manifest, source-tree, executor kind, and evidence hashes. A verified run with
+a complete receipt can finish its lifecycle without executing the candidate
+again.
 
 ```bash
 npm ci
@@ -120,6 +146,15 @@ npm test
 npm run check
 npm run pack:check
 ```
+
+An authenticated, usage-consuming Roomescape smoke is opt-in:
+
+```bash
+npm run smoke:codex
+```
+
+It stops at `receipted` and proves that the original source remains unchanged;
+it does not auto-approve or apply the generated candidate.
 
 ## npm publication
 

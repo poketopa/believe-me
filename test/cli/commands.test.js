@@ -89,18 +89,42 @@ test("run maps CLI fields into RunSpec and returns durable identifiers", async (
   assert.equal(result.lifecycle_state, "receipted");
 });
 
-test("run keeps the Codex port stable but reports unavailable adapter", async () => {
+test("run wires the Codex adapter through the executor-neutral orchestrator", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
-  await assert.rejects(
-    () => executeCliCommand({
+  const executor = async () => {};
+  let observed;
+  const result = await executeCliCommand({
       command: "run",
       project: projectRoot,
       skill: "policy.json",
       executor: "codex",
       input: "input.json",
-    }),
-    (error) => error.code === "infra_error" && error.exitCode === 10,
-  );
+    }, {
+      runIdFactory: () => "run-codex",
+      createCodexExecutor: () => executor,
+      async runHarness(options) {
+        observed = options;
+        return {
+          state: {
+            run_id: options.runId,
+            lifecycle_state: "receipted",
+            receipt_sha256: hash,
+            artifact_root: join(projectRoot, ".harness", "runs", options.runId, "artifacts"),
+          },
+        };
+      },
+    });
+
+  assert.equal(observed.executor, executor);
+  assert.deepEqual(observed.executorInputValidator({
+    task: "fix",
+    allowed_paths: ["src/app.txt"],
+  }), {
+    task: "fix",
+    allowed_paths: ["src/app.txt"],
+  });
+  assert.equal(observed.runSpec.executor_kind, "codex");
+  assert.equal(result.run_id, "run-codex");
 });
 
 test("status and receipt expose verified persisted data", async () => {
