@@ -8,6 +8,7 @@ import {
   createOneAttemptRoutedExecutor,
   readEvidenceBundle,
   readFrozenRunInputs,
+  resumeDeterministicHarness,
   resumeHarness,
   runOneAttemptRoutedHarness,
   selectExecutionRoute,
@@ -247,6 +248,10 @@ test("actual one-attempt run persists route evidence and stops before apply", as
     },
   }), /simulated interruption/u);
   assert.equal(executorCalls, 0);
+  await assert.rejects(
+    resumeDeterministicHarness({ stateDir, runId: "run-routed-evidence" }),
+    /must resume through resumeHarness/u,
+  );
   await assert.rejects(
     resumeHarness({ stateDir, runId: "run-routed-evidence" }),
     /registry must be an object or Map/u,

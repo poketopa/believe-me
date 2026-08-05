@@ -381,7 +381,21 @@ function assertArtifactRoot(stateDir, runId, artifactRoot) {
   }
 }
 
-function assertEvidenceMatchesState(state, evidence) {
+function assertRouteSelectionMatchesWorkflow(workflowPlan, result) {
+  const plannedRoute = workflowPlan.route_selection;
+  const resultRoute = result.route_selection;
+  if (
+    (plannedRoute === undefined) !== (resultRoute === undefined) ||
+    (plannedRoute !== undefined &&
+      sha256CanonicalJSONLine(plannedRoute) !== sha256CanonicalJSONLine(resultRoute))
+  ) {
+    throw safetyRefusal(
+      "Executor result route selection does not match the frozen workflow plan.",
+    );
+  }
+}
+
+function assertEvidenceMatchesState(state, evidence, workflowPlan) {
   if (evidence.receipt_sha256 !== state.receipt_sha256 && state.receipt_sha256) {
     throw safetyRefusal("Evidence receipt hash does not match run state.");
   }
@@ -406,6 +420,7 @@ function assertEvidenceMatchesState(state, evidence) {
   if (result.executor_kind !== state.executor_kind) {
     throw safetyRefusal("Evidence result executor kind does not match run state.");
   }
+  assertRouteSelectionMatchesWorkflow(workflowPlan, result);
   if (evidence.verification?.status !== "passed") {
     throw safetyRefusal("Evidence verification is not a passed result.");
   }
@@ -479,7 +494,11 @@ async function finishFromExistingEvidence(context, evidence) {
       { lifecycle_state: context.state.lifecycle_state },
     );
   }
-  assertEvidenceMatchesState(context.state, evidence);
+  assertEvidenceMatchesState(
+    context.state,
+    evidence,
+    context.inputs.workflowPlan.value,
+  );
   let state = context.state;
   const observed = {
     source_snapshot_sha256: state.source_snapshot_sha256,
@@ -577,17 +596,10 @@ async function executeRun(context, options) {
     if (result.executor_kind !== state.executor_kind) {
       throw safetyRefusal("Executor result kind does not match run state.");
     }
-    const plannedRoute = context.inputs.workflowPlan.value.route_selection;
-    const resultRoute = result.route_selection;
-    if (
-      (plannedRoute === undefined) !== (resultRoute === undefined) ||
-      (plannedRoute !== undefined &&
-        sha256CanonicalJSONLine(plannedRoute) !== sha256CanonicalJSONLine(resultRoute))
-    ) {
-      throw safetyRefusal(
-        "Executor result route selection does not match the frozen workflow plan.",
-      );
-    }
+    assertRouteSelectionMatchesWorkflow(
+      context.inputs.workflowPlan.value,
+      result,
+    );
     await assertDeterministicResultMatchesWorkspace({
       workspaceRoot,
       result,
@@ -675,7 +687,11 @@ async function executeRun(context, options) {
   await options.onCheckpoint?.({ state, bundle });
 
   const evidence = await readEvidenceBundle(state.artifact_root);
-  assertEvidenceMatchesState(state, evidence);
+  assertEvidenceMatchesState(
+    state,
+    evidence,
+    context.inputs.workflowPlan.value,
+  );
   return finishFromExistingEvidence(context, evidence);
 }
 
@@ -882,7 +898,11 @@ export async function resumeHarness(options = {}) {
   const context = await loadResumeContext(options);
   if (context.state.lifecycle_state === "receipted") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
-    assertEvidenceMatchesState(context.state, evidence);
+    assertEvidenceMatchesState(
+      context.state,
+      evidence,
+      context.inputs.workflowPlan.value,
+    );
     return Object.freeze({
       state: context.state,
       evidence,
@@ -925,7 +945,11 @@ export async function resumeDeterministicHarness(options = {}) {
   }
   if (context.state.lifecycle_state === "receipted") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
-    assertEvidenceMatchesState(context.state, evidence);
+    assertEvidenceMatchesState(
+      context.state,
+      evidence,
+      context.inputs.workflowPlan.value,
+    );
     return Object.freeze({
       state: context.state,
       evidence,
@@ -935,6 +959,11 @@ export async function resumeDeterministicHarness(options = {}) {
   if (context.state.lifecycle_state === "verified") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
     return finishFromExistingEvidence(context, evidence);
+  }
+  if (context.inputs.workflowPlan.value.route_selection !== undefined) {
+    throw usageError(
+      "Routed deterministic runs must resume through resumeHarness with an adapter registry.",
+    );
   }
   return executeRun(context, options);
 }
