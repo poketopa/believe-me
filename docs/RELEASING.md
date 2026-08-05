@@ -1,7 +1,7 @@
 # Releasing
 
 BelieveMe publishes reviewed releases through a release-only GitHub Actions
-workflow and npm Trusted Publishing. The first public release target is
+workflow and npm Trusted Publishing. The first public release is
 `@poketopa/believe-me@0.1.0`.
 
 ## Current State
@@ -13,6 +13,8 @@ workflow and npm Trusted Publishing. The first public release target is
 - The workflow publishes only after the protected `npm` environment authorizes
   deployment and npm accepts the GitHub OIDC identity configured as the package
   Trusted Publisher.
+- The public repository protects `main` with required pull requests and checks,
+  and protects `v*` tags against updates and deletion.
 - `THIRD_PARTY_NOTICES.md` records the durable owner-source redistribution grant
   for the three adapted components through
   [Issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788).
@@ -48,12 +50,17 @@ earlier step is done and reviewed.
    `0.1.0`.
 5. [x] Set `private:false` only in the same reviewed release-metadata pull
    request.
-6. Make the GitHub repository public.
-7. Enable required checks and branch/ruleset protection for `main`, plus a
+6. [x] Make the GitHub repository public.
+7. [x] Enable required checks and branch/ruleset protection for `main`, plus a
    `v*` tag rule that prevents release-tag updates and deletion.
-8. Create the GitHub Environment named exactly `npm` and require owner approval.
-9. Create or claim the npm package under the selected owner.
-10. Configure npm Trusted Publishing for GitHub Actions with:
+8. [x] Create the GitHub Environment named exactly `npm` and require owner
+   approval.
+9. [x] Create or claim the npm package under the selected owner. npm requires an
+   existing package before `npm trust` can register a Trusted Publisher, so a
+   minimal `0.0.0-trust-bootstrap` package established the identity. That
+   version is deprecated and its temporary `bootstrap` dist-tag has been
+   removed; `latest` points only to `0.1.0`.
+10. [x] Configure npm Trusted Publishing for GitHub Actions with:
    - repository owner: the final GitHub owner;
    - repository name: the final public repository name;
    - workflow filename: `publish.yml`;
@@ -61,8 +68,8 @@ earlier step is done and reviewed.
    - allowed action: `npm publish`.
 11. [x] Verify that `package.json.repository.url` exactly matches the public
     GitHub repository.
-12. Set repository variable `NPM_PUBLISH_ENABLED=true` only after the prior gates
-   are visible and reviewed.
+12. [x] Set repository variable `NPM_PUBLISH_ENABLED=true` only after the prior
+   gates are visible and reviewed.
 
 Official references:
 
@@ -79,7 +86,7 @@ Official references:
 - GitHub branch and tag rulesets:
   <https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets>
 
-## First Release
+## Release Procedure
 
 Use `vX.Y.Z` tags only. The workflow validator rejects malformed tags and
 metadata drift.
@@ -106,17 +113,34 @@ requires README, license, and third-party notices to be repository-local regular
 files present in the exact packed artifact, so symlink dereferencing cannot
 substitute unreviewed external content.
 
-## Verification
+## v0.1.0 Release Evidence
 
-After the workflow succeeds, record:
+- GitHub Release: [`v0.1.0`](https://github.com/poketopa/believe-me/releases/tag/v0.1.0)
+- Successful publish workflow:
+  [run 30993026999](https://github.com/poketopa/believe-me/actions/runs/30993026999)
+- Immutable release commit and npm `gitHead`:
+  `a76e4ecc12baeb4daed747321e38708a9f5fa54e`
+- Public package:
+  [`@poketopa/believe-me@0.1.0`](https://www.npmjs.com/package/@poketopa/believe-me/v/0.1.0)
+- Registry integrity:
+  `sha512-JeIua763VzT2x0tlWmegEf2K3swDoYI0cJoB+//aMApVXolmT+XHyPznOgviZzdRvOV+UaRJBeBer+KbUNAKiQ==`
+- Registry provenance: npm exposes a SLSA provenance v1 attestation at the
+  [package attestation endpoint](https://registry.npmjs.org/-/npm/v1/attestations/@poketopa%2fbelieve-me@0.1.0).
+- Clean-install smoke: a fresh prefix installed the public registry artifact;
+  `believeme --version` returned `0.1.0`, and `believeme --help` listed the
+  expected commands.
 
-- GitHub Release URL and tag;
-- publish workflow run URL;
-- commit SHA;
-- package name and version;
-- npm package URL;
-- npm integrity and provenance evidence;
-- clean-install smoke result.
+The original release-event run exposed a missing Java 21 setup step in the
+tagged workflow. [PR #26](https://github.com/poketopa/believe-me/pull/26)
+added the pinned Java setup for future releases. Because the protected
+`v0.1.0` tag was intentionally not moved, a reviewed exact-tag/exact-commit
+recovery path in [PR #27](https://github.com/poketopa/believe-me/pull/27)
+published the already-frozen artifact with the same environment approval and
+OIDC Trusted Publisher. The temporary manual trigger and temporary `main`
+environment deployment policy were removed after publication.
+
+For every future release, record the same release URL, workflow run, commit,
+package version, integrity/provenance, and clean-install smoke evidence.
 
 Verify the published registry artifact with:
 
