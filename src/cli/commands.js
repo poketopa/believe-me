@@ -16,6 +16,7 @@ import {
   usageError,
   verificationFailed,
 } from "../contracts/errors.js";
+import { validateExecutorResult } from "../contracts/executor.js";
 import { validateCodexTaskInput } from "../contracts/codex-executor.js";
 import { canonicalJSONLine } from "../core/canonical-json.js";
 import { readRegularFileNoFollow } from "../core/snapshot.js";
@@ -189,6 +190,26 @@ async function readBoundRunState(stateDir, runId, dependencies) {
   return stored;
 }
 
+async function readBoundReceipt(stateDir, runId, dependencies) {
+  const stored = await readBoundRunState(stateDir, runId, dependencies);
+  if (stored.state.lifecycle_state === "rejected") {
+    throw verificationFailed("Rejected run did not produce an approved receipt.", {
+      run_id: runId,
+    });
+  }
+  if (!stored.state.receipt_sha256) {
+    throw notFound("Run has not produced a receipt.", { run_id: runId });
+  }
+  const evidence = await mapMissingRun(() => dependencies.readEvidenceBundle(
+    stored.state.artifact_root,
+  ));
+  assertReceiptBoundToState(stored.state, evidence);
+  return Object.freeze({
+    ...stored,
+    evidence,
+  });
+}
+
 function assertReceiptBoundToState(state, evidence) {
   if (
     !state.receipt_sha256 ||
@@ -211,24 +232,105 @@ function assertReceiptBoundToState(state, evidence) {
 }
 
 async function readReceiptCommand(stateDir, runId, dependencies) {
-  const { state } = await readBoundRunState(stateDir, runId, dependencies);
-  if (state.lifecycle_state === "rejected") {
-    throw verificationFailed("Rejected run did not produce an approved receipt.", {
-      run_id: runId,
-    });
-  }
-  if (!state.receipt_sha256) {
-    throw notFound("Run has not produced a receipt.", { run_id: runId });
-  }
-  const evidence = await mapMissingRun(() => dependencies.readEvidenceBundle(
-    state.artifact_root,
-  ));
-  assertReceiptBoundToState(state, evidence);
+  const { state, evidence } = await readBoundReceipt(stateDir, runId, dependencies);
   return Object.freeze({
     run_id: runId,
     lifecycle_state: state.lifecycle_state,
     receipt_sha256: evidence.receipt_sha256,
     receipt: evidence.receipt,
+  });
+}
+
+function assertReviewVerification(verification) {
+  if (verification === null || typeof verification !== "object" || Array.isArray(verification)) {
+    throw safetyRefusal("Stored verification artifact is malformed.");
+  }
+  if (
+    verification.schema_version === null ||
+    typeof verification.schema_version !== "object" ||
+    Array.isArray(verification.schema_version) ||
+    verification.schema_version.major !== 1
+  ) {
+    throw safetyRefusal("Stored verification artifact schema is unsupported.", {
+      schema_version: verification.schema_version ?? null,
+    });
+  }
+  if (typeof verification.adapter_id !== "string" || verification.adapter_id.length === 0) {
+    throw safetyRefusal("Stored verification artifact is missing adapter_id.");
+  }
+  if (typeof verification.status !== "string" || verification.status.length === 0) {
+    throw safetyRefusal("Stored verification artifact is missing status.");
+  }
+  if (verification.status !== "passed") {
+    throw verificationFailed("Stored verification artifact did not pass.", {
+      adapter_id: verification.adapter_id,
+      status: verification.status,
+    });
+  }
+  return verification;
+}
+
+function assertReviewResult(result, state) {
+  let validated;
+  try {
+    validated = validateExecutorResult(result, { persisted: true });
+  } catch (error) {
+    throw safetyRefusal("Stored result artifact is malformed.", {
+      cause_code: error.code ?? null,
+    });
+  }
+  if (validated.run_id !== state.run_id) {
+    throw safetyRefusal("Evidence result run id does not match run state.", {
+      expected_run_id: state.run_id,
+      actual_run_id: validated.run_id,
+    });
+  }
+  if (validated.executor_kind !== state.executor_kind) {
+    throw safetyRefusal("Evidence result executor kind does not match run state.", {
+      expected_executor_kind: state.executor_kind,
+      actual_executor_kind: validated.executor_kind,
+    });
+  }
+  return validated;
+}
+
+function freezeReviewChanges(changes) {
+  return Object.freeze(changes.map((change) => Object.freeze({
+    path: change.path,
+    sha256: change.sha256,
+  })));
+}
+
+async function readReviewCommand(stateDir, runId, dependencies) {
+  const { state, sha256: stateSha256, evidence } = await readBoundReceipt(
+    stateDir,
+    runId,
+    dependencies,
+  );
+  const verification = assertReviewVerification(evidence.verification);
+  const result = assertReviewResult(evidence.result, state);
+
+  return Object.freeze({
+    run_id: runId,
+    lifecycle_state: state.lifecycle_state,
+    state_sha256: stateSha256,
+    review_status: "verified",
+    approval: Object.freeze({
+      method: evidence.receipt.approval_method,
+      receipt_sha256: evidence.receipt_sha256,
+    }),
+    bindings: Object.freeze({
+      manifest_sha256: evidence.receipt.manifest_sha256,
+      workflow_plan_sha256: evidence.receipt.workflow_plan_sha256,
+      source_snapshot_sha256: evidence.receipt.source_snapshot_sha256,
+      verification_sha256: evidence.receipt.verification_sha256,
+      result_sha256: evidence.receipt.result_sha256,
+    }),
+    verification: Object.freeze({
+      adapter_id: verification.adapter_id,
+      status: verification.status,
+    }),
+    changes: freezeReviewChanges(result.changes),
   });
 }
 
@@ -322,6 +424,10 @@ export async function executeCliCommand(parsed, options = {}) {
 
   if (parsed.command === "receipt") {
     return readReceiptCommand(paths.stateDir, parsed.runId, deps);
+  }
+
+  if (parsed.command === "review") {
+    return readReviewCommand(paths.stateDir, parsed.runId, deps);
   }
 
   if (parsed.command === "apply") {

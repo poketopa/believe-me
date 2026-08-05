@@ -5,6 +5,12 @@ Release.
 
 ## [Unreleased]
 
+### Added
+
+- A read-only `review` CLI command that re-validates stored receipt-bound
+  evidence and returns a bounded approval summary without re-running the
+  verifier or exposing candidate bytes.
+
 ## [0.2.0] - 2026-08-06
 
 ### Added

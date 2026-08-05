@@ -60,6 +60,10 @@ test("parses status receipt and apply run id positionals", () => {
     runId: "run-1",
     approve: sha,
   });
+  assert.deepEqual(parseCliArgs(["review", "run-1"]), {
+    command: "review",
+    runId: "run-1",
+  });
 });
 
 test("rejects unknown commands and flags with usage errors", () => {
@@ -134,7 +138,7 @@ test("rejects malformed approval hashes", () => {
 });
 
 test("rejects unsafe run ids before path construction", () => {
-  for (const command of ["status", "receipt"]) {
+  for (const command of ["status", "receipt", "review"]) {
     for (const runId of ["../run-1", "nested/run-1", ".hidden", "-bad"]) {
       assert.throws(
         () => parseCliArgs([command, runId]),

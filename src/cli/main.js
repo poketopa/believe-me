@@ -14,6 +14,7 @@ export function cliHelpText() {
     `  ${product.command} run --project <path> --skill <path> --executor <deterministic|codex> --input <path> [--state-dir <path>]`,
     `  ${product.command} status <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} receipt <run-id> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} review <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} apply-session <session-id> --approve <winner-receipt-sha256> [--project <path>] [--state-dir <path>]`,
     "",

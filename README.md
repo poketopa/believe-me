@@ -47,8 +47,8 @@ skill / policy
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
 - deterministic verifier mutation calibration over independent Node and Spring tasks.
 
-The CLI surface is `init`, `run`, `status`, `receipt`, `apply`, and the additive
-`apply-session` command for a verified adaptive-session winner.
+The CLI surface is `init`, `run`, `status`, `receipt`, `review`, `apply`, and
+the additive `apply-session` command for a verified adaptive-session winner.
 
 ## Current proof
 
@@ -125,6 +125,7 @@ believeme run \
 
 believeme status <run-id> --project ./my-project
 believeme receipt <run-id> --project ./my-project
+believeme review <run-id> --project ./my-project
 believeme apply <run-id> \
   --approve <receipt-sha256> \
   --project ./my-project
@@ -200,6 +201,11 @@ directory. The CLI is covered both as a source process and after installing an
 also repairs and applies a dependency-free Node reservation policy through the
 manifest-selected command verifier, demonstrating that the CLI lifecycle is not
 tied to Spring.
+
+`believeme review` is the approval-facing read-only companion to `receipt`. It
+re-validates the stored evidence binding and returns a bounded summary of the
+approved run without re-running the verifier, reading the current working tree,
+or exposing candidate bytes.
 
 ## Development
 
