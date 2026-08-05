@@ -341,12 +341,12 @@ test("unexpected arguments are sanitized and never echoed", async () => {
   assert.doesNotMatch(result.stdout, /secret-value/);
 });
 
-test("publish workflow admits published releases and exact-coordinate recovery only", async () => {
+test("publish workflow is a release-only guarded OIDC contract", async () => {
   const workflow = await readFile(PUBLISH_WORKFLOW, "utf8");
-  assert.match(workflow, /^"on":\n  release:\n    types:\n      - published\n  workflow_dispatch:\n    inputs:\n      release_tag:\n        description: Immutable vX\.Y\.Z tag to publish\n        required: true\n        type: string\n      release_sha:\n        description: Exact 40-character commit bound to the tag\n        required: true\n        type: string$/mu);
+  assert.match(workflow, /^"on":\n  release:\n    types:\n      - published$/mu);
   assert.doesNotMatch(
     workflow,
-    /^\s*(push|pull_request|pull_request_target|repository_dispatch|schedule):/mu,
+    /^\s*(push|pull_request|pull_request_target|workflow_dispatch|repository_dispatch|schedule):/mu,
   );
   assert.match(
     workflow,
@@ -363,7 +363,7 @@ test("publish workflow admits published releases and exact-coordinate recovery o
   assert.doesNotMatch(workflow, /(NODE_AUTH_TOKEN|NPM_TOKEN|npm[_-]?token)/u);
 });
 
-test("publish workflow pins actions, provisions Java 21, freezes coordinates, and does not retain credentials", async () => {
+test("publish workflow pins actions, provisions Java 21, freezes the event commit, and does not retain credentials", async () => {
   const workflow = await readFile(PUBLISH_WORKFLOW, "utf8");
   const usesLines = workflow.match(/^\s+-?\s*uses:\s*[^\n]+$/gmu) ?? [];
   assert.equal(usesLines.length, 3);
@@ -376,9 +376,9 @@ test("publish workflow pins actions, provisions Java 21, freezes coordinates, an
   );
   assert.match(
     workflow,
-    /^concurrency:\n  group: npm-publish-\$\{\{ github\.event_name == 'release' && github\.event\.release\.tag_name \|\| inputs\.release_tag \}\}\n  cancel-in-progress: false$/mu,
+    /^concurrency:\n  group: npm-publish-\$\{\{ github\.event\.release\.tag_name \}\}\n  cancel-in-progress: false$/mu,
   );
-  assert.match(workflow, /^          ref: \$\{\{ env\.RELEASE_SHA \}\}$/mu);
+  assert.match(workflow, /^          ref: \$\{\{ github\.sha \}\}$/mu);
   assert.doesNotMatch(
     workflow,
     /^          ref: \$\{\{ github\.event\.release\.tag_name \}\}$/mu,
@@ -391,16 +391,11 @@ test("publish workflow pins actions, provisions Java 21, freezes coordinates, an
 test("publish workflow proves main ancestry and validates before one final publish", async () => {
   const workflow = await readFile(PUBLISH_WORKFLOW, "utf8");
   const commands = [
-    "[[ \"$RELEASE_TAG\" =~ ^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$ ]]",
-    "[[ \"$RELEASE_SHA\" =~ ^[0-9a-f]{40}$ ]]",
-    "git fetch origin main --no-tags",
-    "git fetch origin \"refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG\" --no-tags",
-    "test \"$(git rev-parse HEAD)\" = \"$RELEASE_SHA\"",
-    "test \"$(git rev-parse --verify \"refs/tags/$RELEASE_TAG^{commit}\")\" = \"$RELEASE_SHA\"",
-    "git merge-base --is-ancestor \"$RELEASE_SHA\" origin/main",
+    "git merge-base --is-ancestor \"$GITHUB_SHA\" origin/main",
     "run: npm ci --ignore-scripts",
     "run: npm run check",
     "run: npm test",
+    "RELEASE_TAG: ${{ github.event.release.tag_name }}",
     "run: npm run release:check -- --tag \"$RELEASE_TAG\" --publish",
     "run: npm run pack:check",
     "run: npm publish --access public",
