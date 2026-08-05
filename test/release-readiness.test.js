@@ -119,17 +119,17 @@ test("current release checkout reports development mode without publishing", asy
     metadata: {
       package: {
         name: "@poketopa/believe-me",
-        version: "0.1.0",
+        version: "0.2.0",
         private: false,
       },
       lock: {
         name: "@poketopa/believe-me",
-        version: "0.1.0",
-        rootVersion: "0.1.0",
+        version: "0.2.0",
+        rootVersion: "0.2.0",
       },
       product: {
         name: "@poketopa/believe-me",
-        version: "0.1.0",
+        version: "0.2.0",
       },
     },
     requiredFiles: {
