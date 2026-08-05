@@ -41,3 +41,15 @@ real AI provider is admitted:
 
 These contracts are language-neutral. Java/Spring behavior belongs only to the
 reference adapter.
+
+## Canonical Spring proof
+
+`roomescape-cancel-booking-penalty` is a clean-room fixture derived from the
+owner-provided `P3-M04` requirement at commit
+`dc958f858882f10e11644326296690b8670ae7b5`. The referenced candidate did not
+contain the requested policy implementation, so no application source was
+copied.
+
+The verifier runs the fixture-owned Gradle wrapper directly without a shell.
+Fast tests use H2 in PostgreSQL compatibility mode; a required CI job repeats
+the preservation proof against a digest-pinned PostgreSQL 17.5 service.

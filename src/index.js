@@ -93,3 +93,7 @@ export {
 export {
   applyEvidenceBundle,
 } from "./core/apply.js";
+export {
+  SPRING_VERIFIER_ADAPTER_ID,
+  runSpringVerifier,
+} from "./adapters/spring-verifier.js";

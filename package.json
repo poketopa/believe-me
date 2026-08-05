@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "check": "node scripts/check-syntax.js",
-    "test": "node --test",
+    "test": "node scripts/run-node-tests.js",
     "pack:check": "npm pack --dry-run"
   },
   "engines": {

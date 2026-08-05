@@ -8,3 +8,5 @@ dist/
 !.env.example
 .harness/
 .omx/
+.gradle/
+**/build/

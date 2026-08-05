@@ -7,6 +7,7 @@ import { sha256Hex } from "./hash.js";
 
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   ".git",
+  ".gradle",
   ".harness",
   "node_modules",
   "build",
