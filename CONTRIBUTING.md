@@ -17,10 +17,10 @@ Run `npm run release:check` when a change touches package metadata, release
 workflow files, packed files, third-party notices, security policy, generated
 release-note configuration, or public claims.
 
-The current maximum release claim is `dormant contract validated; publication
-blocked and unproven`. Do not remove `private:true`, create a public tag,
-publish a GitHub Release, enable `NPM_PUBLISH_ENABLED`, configure npm Trusted
-Publishing, or make npm/package-support claims inside an ordinary feature PR.
+Do not change package versions, create a public tag, publish a GitHub Release,
+or change `NPM_PUBLISH_ENABLED` inside an ordinary feature PR. Release
+activation requires an owner-approved release issue, a dedicated metadata PR,
+passing release-mode validation, and the protected publication workflow.
 
 Before any public npm release, `THIRD_PARTY_NOTICES.md` must either contain
 durable written redistribution/license confirmation for adapted owner-source

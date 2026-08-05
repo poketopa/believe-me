@@ -106,7 +106,7 @@ async function assertFailure({ mutate, args = ["--tag", "v1.2.3", "--publish"], 
   assert.doesNotMatch(result.stdout, /Error:|at .*check-release|stack/i);
 }
 
-test("current private checkout reports development mode with blocked publication", async () => {
+test("current release checkout reports development mode without publishing", async () => {
   const result = await runReleaseCheck();
   const payload = parseSingleJsonLine(result);
   assert.equal(result.code, 0);
@@ -119,17 +119,17 @@ test("current private checkout reports development mode with blocked publication
     metadata: {
       package: {
         name: "@poketopa/believe-me",
-        version: "0.0.0-development",
-        private: true,
+        version: "0.1.0",
+        private: false,
       },
       lock: {
         name: "@poketopa/believe-me",
-        version: "0.0.0-development",
-        rootVersion: "0.0.0-development",
+        version: "0.1.0",
+        rootVersion: "0.1.0",
       },
       product: {
         name: "@poketopa/believe-me",
-        version: "0.0.0-development",
+        version: "0.1.0",
       },
     },
     requiredFiles: {
@@ -341,7 +341,7 @@ test("unexpected arguments are sanitized and never echoed", async () => {
   assert.doesNotMatch(result.stdout, /secret-value/);
 });
 
-test("publish workflow is a release-only dormant OIDC contract", async () => {
+test("publish workflow is a release-only guarded OIDC contract", async () => {
   const workflow = await readFile(PUBLISH_WORKFLOW, "utf8");
   assert.match(workflow, /^"on":\n  release:\n    types:\n      - published$/mu);
   assert.doesNotMatch(
@@ -408,7 +408,7 @@ test("the standalone pack check cannot execute npm lifecycle scripts", async () 
   assert.equal(packageJson.scripts["pack:check"], "npm pack --dry-run --ignore-scripts");
 });
 
-test("ordinary CI continuously exercises the dormant release validator", async () => {
+test("ordinary CI continuously exercises the release validator", async () => {
   const workflow = await readFile(CI_WORKFLOW, "utf8");
   assert.equal(workflow.match(/run: npm run release:check/gu)?.length, 1);
   const install = workflow.indexOf("run: npm ci");

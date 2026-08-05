@@ -7,9 +7,17 @@ workflow: select policy, execute in isolation, verify evidence, approve, and
 apply atomically.
 
 > [!NOTE]
-> This repository is private and pre-release. The product identity is finalized
-> as BelieveMe, the npm package is `@poketopa/believe-me`, and the CLI command is
-> `believeme`. Public npm publication remains disabled.
+> BelieveMe v0.1.0 is the first public release. The npm package is
+> `@poketopa/believe-me`, and the CLI command is `believeme`.
+
+## Install
+
+Node.js 24 LTS or later is required.
+
+```bash
+npm install --global @poketopa/believe-me
+believeme --version
+```
 
 ## Product promise
 
@@ -36,7 +44,7 @@ skill / policy
 - one Roomescape development fixture;
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
 
-The pre-release CLI surface is `init`, `run`, `status`, `receipt`, and `apply`.
+The v0.1 CLI surface is `init`, `run`, `status`, `receipt`, and `apply`.
 
 ## Current proof
 
@@ -216,28 +224,22 @@ It writes a replay-verified canonical JSONL ledger and digest under a temporary
 benchmark directory. A one-pair result is labelled `pilot`; it validates the
 measurement path but is not presented as efficacy evidence.
 
-## npm publication
+## Release and publication
 
-Publication is intentionally disabled with `private: true`. The checked-in
-publish workflow is a dormant contract: it listens for a published GitHub
-Release but skips unless `NPM_PUBLISH_ENABLED` is exactly `true`, and the release
-validator rejects publish mode while the package remains private.
+The package identity is `@poketopa/believe-me`. Public releases originate from
+a reviewed commit on `main`, an immutable `v*` tag, and a published GitHub
+Release. The release-only workflow validates the tag, package metadata, locked
+metadata, runtime identity, tests, and packed files before one final
+`npm publish --access public` through npm Trusted Publishing. The workflow also
+requires the protected GitHub `npm` environment and the repository variable
+`NPM_PUBLISH_ENABLED=true`.
 
-The final package identity is `@poketopa/believe-me`. Before public npm
-publication, the owner must make the repository public, resolve npm account and
-package ownership, create the GitHub `npm` environment, and configure npm
-Trusted Publishing for
-`.github/workflows/publish.yml`, remove `private:true` in a reviewed metadata
-change, and enable the repository variable only after those gates are visible.
 The prior owner-source licensing blocker for the three listed adapted
 components is resolved by the durable rights-holder confirmation in
 [Issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788)
-and recorded in `THIRD_PARTY_NOTICES.md`. Publication remains disabled until the
-remaining release activation gates are completed.
-
-The current release claim is limited to `dormant contract validated;
-publication blocked and unproven`. See [CHANGELOG.md](CHANGELOG.md) and
-[docs/RELEASING.md](docs/RELEASING.md).
+and recorded in `THIRD_PARTY_NOTICES.md`. See [CHANGELOG.md](CHANGELOG.md) and
+[docs/RELEASING.md](docs/RELEASING.md) for the release record and verification
+procedure.
 
 ## Provenance
 
