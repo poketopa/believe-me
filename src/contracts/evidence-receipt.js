@@ -14,7 +14,7 @@ export const EVIDENCE_RECEIPT_REQUIRED_FIELDS = Object.freeze([
   "source_snapshot_sha256",
   "verification_sha256",
   "result_sha256",
-  "approval_required_sha256",
+  "approval_method",
   "issued_at",
 ]);
 
@@ -36,7 +36,11 @@ export function validateEvidenceReceipt(value, options = {}) {
   assertSha256Hex(value.source_snapshot_sha256, "source_snapshot_sha256");
   assertSha256Hex(value.verification_sha256, "verification_sha256");
   assertSha256Hex(value.result_sha256, "result_sha256");
-  assertSha256Hex(value.approval_required_sha256, "approval_required_sha256");
+  if (value.approval_method !== "receipt_sha256") {
+    throw usageError("approval_method must be exactly 'receipt_sha256'.", {
+      field: "approval_method",
+    });
+  }
   assertString(value.issued_at, "issued_at");
   return deepFreeze(structuredClone(value));
 }
