@@ -118,17 +118,17 @@ test("current private checkout reports development mode with blocked publication
     tag: null,
     metadata: {
       package: {
-        name: "verifiable-agent-harness",
+        name: "@poketopa/believe-me",
         version: "0.0.0-development",
         private: true,
       },
       lock: {
-        name: "verifiable-agent-harness",
+        name: "@poketopa/believe-me",
         version: "0.0.0-development",
         rootVersion: "0.0.0-development",
       },
       product: {
-        name: "verifiable-agent-harness",
+        name: "@poketopa/believe-me",
         version: "0.0.0-development",
       },
     },
@@ -236,7 +236,7 @@ test("package version drift from package-lock root fails", async () => {
 test("package version drift from runtime product fails", async () => {
   await assertFailure({
     mutate: async (root) => {
-      await writeProduct(root, { name: "verifiable-agent-harness", version: "1.2.4" });
+      await writeProduct(root, { name: "@poketopa/believe-me", version: "1.2.4" });
     },
     code: "version.product_mismatch",
     field: "version.product",

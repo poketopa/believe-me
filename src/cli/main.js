@@ -5,16 +5,16 @@ import { formatJsonlError, formatJsonlSuccess } from "./jsonl.js";
 
 export function cliHelpText() {
   return [
-    `${product.name} ${product.version}`,
+    `${product.displayName} (${product.name}) ${product.version}`,
     "",
     "A verifiable execution harness for AI code changes.",
     "",
     "Usage:",
-    "  verifiable-agent-harness init [--project <path>] [--state-dir <path>]",
-    "  verifiable-agent-harness run --project <path> --skill <path> --executor <deterministic|codex> --input <path> [--state-dir <path>]",
-    "  verifiable-agent-harness status <run-id> [--project <path>] [--state-dir <path>]",
-    "  verifiable-agent-harness receipt <run-id> [--project <path>] [--state-dir <path>]",
-    "  verifiable-agent-harness apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]",
+    `  ${product.command} init [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} run --project <path> --skill <path> --executor <deterministic|codex> --input <path> [--state-dir <path>]`,
+    `  ${product.command} status <run-id> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} receipt <run-id> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]`,
     "",
     "Command results are emitted as one canonical JSONL record.",
     "Help and version output remain plain text.",

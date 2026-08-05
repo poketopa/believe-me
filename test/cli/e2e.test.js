@@ -12,7 +12,7 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { sha256Hex } from "../../src/core/hash.js";
 
-const cliPath = resolve("bin/verifiable-agent-harness.js");
+const cliPath = resolve("bin/believeme.js");
 
 async function runCli(args) {
   return new Promise((resolveResult, reject) => {
