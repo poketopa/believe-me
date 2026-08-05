@@ -363,13 +363,17 @@ test("publish workflow is a release-only guarded OIDC contract", async () => {
   assert.doesNotMatch(workflow, /(NODE_AUTH_TOKEN|NPM_TOKEN|npm[_-]?token)/u);
 });
 
-test("publish workflow pins actions, freezes the event commit, and does not retain credentials", async () => {
+test("publish workflow pins actions, provisions Java 21, freezes the event commit, and does not retain credentials", async () => {
   const workflow = await readFile(PUBLISH_WORKFLOW, "utf8");
   const usesLines = workflow.match(/^\s+-?\s*uses:\s*[^\n]+$/gmu) ?? [];
-  assert.equal(usesLines.length, 2);
+  assert.equal(usesLines.length, 3);
   for (const line of usesLines) {
     assert.match(line, /@[a-f0-9]{40}(?:\s+#\s+v\d+)?$/u);
   }
+  assert.match(
+    workflow,
+    /^      - name: Use Java 21 for Spring verification\n        uses: actions\/setup-java@[a-f0-9]{40} # v5\n        with:\n          distribution: temurin\n          java-version: "21"\n          cache: gradle$/mu,
+  );
   assert.match(
     workflow,
     /^concurrency:\n  group: npm-publish-\$\{\{ github\.event\.release\.tag_name \}\}\n  cancel-in-progress: false$/mu,
