@@ -1,7 +1,4 @@
-export const product = Object.freeze({
-  name: "verifiable-agent-harness",
-  version: "0.0.0-development",
-});
+export { product } from "./product.js";
 
 export {
   HarnessContractError,
@@ -133,3 +130,17 @@ export {
   SPRING_VERIFIER_ADAPTER_ID,
   runSpringVerifier,
 } from "./adapters/spring-verifier.js";
+export {
+  parseCliArgs,
+} from "./cli/args.js";
+export {
+  executeCliCommand,
+} from "./cli/commands.js";
+export {
+  formatJsonlError,
+  formatJsonlSuccess,
+} from "./cli/jsonl.js";
+export {
+  cliHelpText,
+  runCli,
+} from "./cli/main.js";
