@@ -51,6 +51,23 @@ The stable pre-release JSONL CLI exposes `init`, `run`, `status`, `receipt`, and
 codes. Both executor kinds reuse the same state, receipt, explicit approval,
 atomic apply, and resume contracts.
 
+## Measurement layer
+
+The paired benchmark layer compares a direct Codex working-copy edit with the
+full harness intervention from identical baseline bytes. Both arms retain the
+same task, provider configuration, sandbox, and verifier. The runner records
+terminal failures instead of dropping them, then produces paired risk
+differences, exact discordant-pair inference, task-cluster bootstrap intervals,
+and paired token/time summaries with explicit missingness.
+
+Every experiment, task, arm, pair, and aggregate is written to canonical JSONL.
+Each row binds its own digest and the complete ledger has a SHA-256 sidecar;
+reading the ledger regenerates the aggregate and refuses drift. The first
+Roomescape execution exposed and preserves a protocol-invalid verifier-ordering
+defect; a corrected protocol-valid pilot records a harness success together with
+its higher token and latency cost. Both remain pilots until independent tasks
+and a frozen analysis cut justify a stronger comparison.
+
 ## Core contracts
 
 - `SkillManifest`

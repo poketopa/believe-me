@@ -17,7 +17,7 @@ import {
 import { inspectCodexEvents } from "./codex-events.js";
 import { createCodexCliTransport } from "./codex-transport.js";
 
-async function inventoryWorkspace(root) {
+export async function captureWorkspaceInventory(root) {
   const files = new Map();
   const directories = new Set();
 
@@ -72,7 +72,7 @@ function createPrompt(taskInput) {
   ].join("\n");
 }
 
-function assertTransportCompleted(output) {
+export function assertCodexTransportCompleted(output) {
   if (output.timed_out) {
     throw infraError("Codex execution timed out.");
   }
@@ -172,17 +172,17 @@ export function createCodexExecutor({
     const root = resolve(workspaceRoot);
     const taskInput = validateCodexTaskInput(input.input);
     const allowedPaths = normalizedAllowedPaths(root, taskInput);
-    const before = await inventoryWorkspace(root);
+    const before = await captureWorkspaceInventory(root);
     const output = await transport({
       prompt: createPrompt(taskInput),
       workspace: root,
     });
-    assertTransportCompleted(output);
+    assertCodexTransportCompleted(output);
     const eventEvidence = inspectCodexEvents(output.events, {
       workspace: root,
       stderr: output.stderr,
     });
-    const after = await inventoryWorkspace(root);
+    const after = await captureWorkspaceInventory(root);
     const changes = deriveChanges(before, after, allowedPaths);
     const executorEvidence = validateCodexExecutorResultEvidence({
       schema_version: { major: 1 },
