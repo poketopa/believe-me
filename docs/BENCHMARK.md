@@ -95,6 +95,27 @@ The benchmark deliberately avoids the previous project's failure mode: protocol
 violations can invalidate a row's integrity, but weak or unfavorable performance
 never invalidates the experiment. Negative results are still results.
 
+## Experiment intake and ablation evidence
+
+Register an experiment issue before live provider execution. The issue freezes one
+principal intervention and its immediate control, primary and secondary metrics,
+source and task digests, provider/model/reasoning configuration, verifier, policy,
+corpus, seed and order, protocol-invalid conditions, scope, non-goals, and expected
+release impact as applicable.
+
+Each optimization pull request links that issue and reports its principal ablation.
+Attach the canonical ledger and report digests, or explain why a benchmark is not
+applicable. Report observed regressions, missing usage/cost/timing with typed reasons,
+and all scheduled negative, timeout, infrastructure, safety, or inconclusive outcomes.
+Only integrity failures declared in advance can make a row protocol-invalid; an
+unfavorable result cannot.
+
+Live provider benchmarks run only after deterministic checks pass and are not
+credentialed CI merge gates. The pull request claim is limited to its frozen evidence
+and maturity label. Findings that require another intervention, corpus, protocol, or
+public claim become follow-up issues rather than hidden scope in the current pull
+request.
+
 ## First authenticated development pilot
 
 The repository preserves the first real paired smoke at

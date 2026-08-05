@@ -24,6 +24,27 @@ body:
       description: List observable, testable completion conditions.
     validations:
       required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List the files, contracts, or product behavior this proposal may change.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: State adjacent work that must remain outside this issue and pull request.
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and rollback
+      description: Describe trust-boundary, compatibility, or delivery risk and how the change can be reverted.
+    validations:
+      required: true
   - type: dropdown
     id: layer
     attributes:
@@ -35,5 +56,17 @@ body:
         - adapter
         - developer experience
         - release engineering
+    validations:
+      required: true
+  - type: dropdown
+    id: release_impact
+    attributes:
+      label: Release impact
+      description: Select the expected SemVer impact; the pull request must confirm it from the implemented diff.
+      options:
+        - none
+        - patch
+        - minor
+        - breaking
     validations:
       required: true

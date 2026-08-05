@@ -4,6 +4,22 @@ BelieveMe publishes reviewed releases through a release-only GitHub Actions
 workflow and npm Trusted Publishing. The first public release is
 `@poketopa/believe-me@0.1.0`.
 
+## Adaptive Milestone Release Policy
+
+The `v0.2 — adaptive execution` milestone preserves this manual, reviewed release
+procedure. It does not add Changesets, Release Please, experimental release tags, or a
+second publication path. Existing publish triggers, permissions, the protected `npm`
+environment, immutable `v*` rules, OIDC Trusted Publishing, and owner approval remain
+unchanged.
+
+Every pull request declares `none`, `patch`, `minor`, or `breaking` release impact.
+User-visible behavior adds an `Unreleased` changelog entry; governance-only or internal
+measurement changes may declare `none`. These declarations inform a later dedicated
+release issue and metadata pull request and never authorize version changes, tags,
+GitHub Releases, or npm publication inside an ordinary feature or experiment pull
+request. Release automation may be reconsidered only in a separate post-v0.2 decision
+issue after another stable release.
+
 ## Current State
 
 - `package.json`, `package-lock.json`, and the runtime product identity agree on

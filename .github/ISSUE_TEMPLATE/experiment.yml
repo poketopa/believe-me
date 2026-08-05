@@ -1,0 +1,107 @@
+name: Experiment proposal
+description: Propose one measurable intervention against a frozen control.
+title: "experiment: "
+labels:
+  - type:experiment
+  - needs:benchmark
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Register the experiment before live provider runs. Keep one principal intervention per issue and preserve unfavorable or protocol-invalid outcomes.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the measurable problem without assuming the intervention wins.
+    validations:
+      required: true
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: State the expected directional effect and the evidence that would refute it.
+    validations:
+      required: true
+  - type: textarea
+    id: control
+    attributes:
+      label: Control
+      description: Define the immediate predecessor, configuration, and behavior used as the baseline arm.
+    validations:
+      required: true
+  - type: textarea
+    id: intervention
+    attributes:
+      label: Principal intervention
+      description: Define the single treatment difference and its ablation toggle.
+    validations:
+      required: true
+  - type: textarea
+    id: primary_metrics
+    attributes:
+      label: Primary metrics
+      description: Define verified-success and safety outcomes, estimands, and the declared analysis cut.
+    validations:
+      required: true
+  - type: textarea
+    id: secondary_metrics
+    attributes:
+      label: Secondary metrics
+      description: Define token, latency, attempt, nullable cost, missingness, or calibration observations.
+    validations:
+      required: true
+  - type: textarea
+    id: frozen_inputs
+    attributes:
+      label: Frozen inputs
+      description: Bind source and task digests, provider configuration, policy, verifier, corpus, seed, and order as applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: protocol_invalid
+    attributes:
+      label: Protocol-invalid conditions
+      description: List integrity failures separately from weak, negative, timeout, infrastructure, or missing-data outcomes.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List the code, fixtures, ledgers, and reports owned by this experiment.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable completion and reproducibility conditions.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: State adjacent optimizations and claims excluded from this experiment.
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and rollback
+      description: Describe safety, contract, measurement, or cost risk and the disable or revert path.
+    validations:
+      required: true
+  - type: dropdown
+    id: release_impact
+    attributes:
+      label: Release impact
+      description: Select the expected SemVer impact; the pull request must confirm it from the implemented diff.
+      options:
+        - none
+        - patch
+        - minor
+        - breaking
+    validations:
+      required: true
