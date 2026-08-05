@@ -21,6 +21,11 @@ const commands = Object.freeze({
     requiredFlags: Object.freeze([]),
     positionals: 1,
   }),
+  review: Object.freeze({
+    flags: Object.freeze(["project", "state-dir"]),
+    requiredFlags: Object.freeze([]),
+    positionals: 1,
+  }),
   apply: Object.freeze({
     flags: Object.freeze(["approve", "project", "state-dir"]),
     requiredFlags: Object.freeze(["approve"]),

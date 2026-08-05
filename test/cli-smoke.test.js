@@ -14,14 +14,14 @@ test("CLI exposes the working product identity", () => {
   assert.equal(result.stdout, "0.2.0\n");
 });
 
-test("CLI documents the v0.1 command surface", () => {
+test("CLI documents the current command surface", () => {
   const result = spawnSync(process.execPath, [cli.pathname, "--help"], {
     encoding: "utf8",
   });
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /^BelieveMe \(@poketopa\/believe-me\)/);
-  for (const command of ["init", "run", "status", "receipt", "apply"]) {
+  for (const command of ["init", "run", "status", "receipt", "review", "apply"]) {
     assert.match(result.stdout, new RegExp(`\\b${command}\\b`));
   }
 });

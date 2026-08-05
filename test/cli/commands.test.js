@@ -4,8 +4,66 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { executeCliCommand } from "../../src/cli/commands.js";
+import { sha256Hex } from "../../src/core/hash.js";
 
 const hash = "a".repeat(64);
+const paddedHash = "b".repeat(64);
+
+function candidateChange(path, content) {
+  const bytes = Buffer.from(content, "utf8");
+  return {
+    path,
+    content_base64: bytes.toString("base64"),
+    sha256: sha256Hex(bytes),
+  };
+}
+
+function reviewState(overrides = {}) {
+  return {
+    run_id: "run-1",
+    lifecycle_state: "receipted",
+    manifest_sha256: hash,
+    workflow_plan_sha256: hash,
+    source_snapshot_sha256: hash,
+    executor_kind: "deterministic",
+    receipt_sha256: hash,
+    artifact_root: "/artifacts",
+    ...overrides,
+  };
+}
+
+function reviewEvidence(overrides = {}) {
+  const change = candidateChange("src/app.txt", "candidate bytes");
+  return {
+    receipt_sha256: hash,
+    receipt: {
+      run_id: "run-1",
+      manifest_sha256: hash,
+      workflow_plan_sha256: hash,
+      source_snapshot_sha256: hash,
+      verification_sha256: hash,
+      result_sha256: hash,
+      approval_method: "receipt_sha256",
+      issued_at: "2026-08-05T00:00:00.000Z",
+    },
+    verification: {
+      schema_version: { major: 1 },
+      adapter_id: "command-verifier",
+      status: "passed",
+      stdout_sha256: paddedHash,
+      stderr_sha256: paddedHash,
+      ...overrides.verification,
+    },
+    result: {
+      schema_version: { major: 1 },
+      run_id: "run-1",
+      executor_kind: "deterministic",
+      status: "completed",
+      changes: [change],
+      ...overrides.result,
+    },
+  };
+}
 
 test("init creates an idempotent project-local state config", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
@@ -135,6 +193,7 @@ test("status and receipt expose verified persisted data", async () => {
     manifest_sha256: hash,
     workflow_plan_sha256: hash,
     source_snapshot_sha256: hash,
+    executor_kind: "deterministic",
     receipt_sha256: hash,
     artifact_root: "/artifacts",
   };
@@ -166,6 +225,45 @@ test("status and receipt expose verified persisted data", async () => {
   }, options);
   assert.equal(receipt.receipt_sha256, hash);
   assert.equal(receipt.receipt.run_id, "run-1");
+});
+
+test("review exposes only the validated receipt and evidence summary", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const change = candidateChange("src/app.txt", "candidate bytes");
+  const state = reviewState();
+  const evidence = reviewEvidence();
+
+  const review = await executeCliCommand({
+    command: "review",
+    runId: "run-1",
+    project: projectRoot,
+  }, {
+    readRunState: async () => ({ state, sha256: paddedHash }),
+    readEvidenceBundle: async () => evidence,
+  });
+
+  assert.deepEqual(review, {
+    run_id: "run-1",
+    lifecycle_state: "receipted",
+    state_sha256: paddedHash,
+    review_status: "stored_evidence_verified",
+    approval: {
+      method: "receipt_sha256",
+      receipt_sha256: hash,
+    },
+    bindings: {
+      manifest_sha256: hash,
+      workflow_plan_sha256: hash,
+      source_snapshot_sha256: hash,
+      verification_sha256: hash,
+      result_sha256: hash,
+    },
+    verification: {
+      adapter_id: "command-verifier",
+      status: "passed",
+    },
+    changes: [{ path: "src/app.txt", sha256: change.sha256 }],
+  });
 });
 
 test("missing status maps filesystem absence to not_found", async () => {
@@ -202,6 +300,7 @@ test("status receipt and apply refuse a persisted run-id mismatch", async () => 
   for (const parsed of [
     { command: "status", runId: "requested-run", project: projectRoot },
     { command: "receipt", runId: "requested-run", project: projectRoot },
+    { command: "review", runId: "requested-run", project: projectRoot },
     {
       command: "apply",
       runId: "requested-run",
@@ -218,6 +317,161 @@ test("status receipt and apply refuse a persisted run-id mismatch", async () => 
     );
   }
   assert.equal(applied, false);
+});
+
+test("review refuses every stored state and receipt binding mismatch", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const evidence = reviewEvidence();
+  const mismatches = [
+    ["receipt_sha256", reviewState({ receipt_sha256: paddedHash })],
+    ["manifest_sha256", reviewState({ manifest_sha256: paddedHash })],
+    ["workflow_plan_sha256", reviewState({ workflow_plan_sha256: paddedHash })],
+    ["source_snapshot_sha256", reviewState({ source_snapshot_sha256: paddedHash })],
+  ];
+
+  for (const [field, state] of mismatches) {
+    await assert.rejects(
+      () => executeCliCommand({
+        command: "review",
+        runId: "run-1",
+        project: projectRoot,
+      }, {
+        readRunState: async () => ({ state, sha256: paddedHash }),
+        readEvidenceBundle: async () => evidence,
+      }),
+      (error) => error.code === "safety_refusal",
+      field,
+    );
+  }
+});
+
+test("review refuses rejected, non-reviewable, and pre-receipt persisted runs", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "review",
+      runId: "run-1",
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({
+        state: {
+          run_id: "run-1",
+          lifecycle_state: "rejected",
+        },
+        sha256: paddedHash,
+      }),
+      readEvidenceBundle: async () => {
+        throw new Error("review must not read rejected evidence");
+      },
+    }),
+    (error) => error.code === "verification_failed" && error.exitCode === 5,
+  );
+
+  for (const lifecycleState of ["draft", "planned", "executing"]) {
+    let evidenceRead = false;
+    await assert.rejects(
+      () => executeCliCommand({
+        command: "review",
+        runId: "run-2",
+        project: projectRoot,
+      }, {
+        readRunState: async () => ({
+          state: {
+            run_id: "run-2",
+            lifecycle_state: lifecycleState,
+            receipt_sha256: hash,
+          },
+          sha256: paddedHash,
+        }),
+        readEvidenceBundle: async () => {
+          evidenceRead = true;
+          throw new Error("review must not read non-reviewable evidence");
+        },
+      }),
+      (error) =>
+        error.code === "safety_refusal" &&
+        error.details.lifecycle_state === lifecycleState,
+    );
+    assert.equal(evidenceRead, false);
+  }
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "review",
+      runId: "run-3",
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({
+        state: {
+          run_id: "run-3",
+          lifecycle_state: "receipted",
+        },
+        sha256: paddedHash,
+      }),
+    }),
+    (error) => error.code === "not_found" && error.exitCode === 4,
+  );
+});
+
+test("review admits every receipt-bearing review lifecycle", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const evidence = reviewEvidence();
+
+  for (const lifecycleState of [
+    "verified",
+    "receipted",
+    "approved",
+    "applied",
+    "rolled_back",
+  ]) {
+    const review = await executeCliCommand({
+      command: "review",
+      runId: "run-1",
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({
+        state: reviewState({ lifecycle_state: lifecycleState }),
+        sha256: paddedHash,
+      }),
+      readEvidenceBundle: async () => evidence,
+    });
+    assert.equal(review.lifecycle_state, lifecycleState);
+    assert.equal(review.review_status, "stored_evidence_verified");
+  }
+});
+
+test("review refuses malformed verification or mismatched result evidence", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const baseState = reviewState();
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "review",
+      runId: "run-1",
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({ state: baseState, sha256: paddedHash }),
+      readEvidenceBundle: async () => reviewEvidence({
+        verification: { status: "failed" },
+      }),
+    }),
+    (error) => error.code === "verification_failed" && error.exitCode === 5,
+  );
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "review",
+      runId: "run-1",
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({ state: baseState, sha256: paddedHash }),
+      readEvidenceBundle: async () => reviewEvidence({
+        result: { run_id: "other-run" },
+      }),
+    }),
+    (error) => error.code === "safety_refusal" && error.exitCode === 3,
+  );
 });
 
 test("unknown exported commands fail closed without reaching apply", async () => {

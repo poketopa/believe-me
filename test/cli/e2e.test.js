@@ -65,6 +65,13 @@ function candidate(path, content) {
   };
 }
 
+async function readTextArtifacts(paths) {
+  const entries = await Promise.all(
+    Object.entries(paths).map(async ([key, path]) => [key, await readFile(path, "utf8")]),
+  );
+  return Object.fromEntries(entries);
+}
+
 test("CLI process runs, receipts, and explicitly applies the Spring proof", async () => {
   const canonicalRoot = resolve(
     "test/fixtures/roomescape-cancel-booking-penalty",
@@ -137,6 +144,38 @@ test("CLI process runs, receipts, and explicitly applies the Spring proof", asyn
   ]), "receipt");
   assert.equal(receipt.data.receipt_sha256, run.data.receipt_sha256);
 
+  const artifactRoot = join(initialized.data.state_dir, "runs", run.data.run_id, "artifacts");
+  const beforeReviewArtifacts = await readTextArtifacts({
+    state: join(initialized.data.state_dir, "runs", run.data.run_id, "state.jsonl"),
+    stateDigest: join(initialized.data.state_dir, "runs", run.data.run_id, "state.sha256"),
+    receipt: join(artifactRoot, "receipt.jsonl"),
+    receiptDigest: join(artifactRoot, "receipt.sha256"),
+    verification: join(artifactRoot, "verification.jsonl"),
+    result: join(artifactRoot, "result.jsonl"),
+  });
+  const review = assertSuccess(await runCli([
+    "review",
+    run.data.run_id,
+    "--project",
+    projectRoot,
+  ]), "review");
+  assert.equal(review.data.review_status, "stored_evidence_verified");
+  assert.equal(review.data.lifecycle_state, "receipted");
+  assert.equal(review.data.approval.receipt_sha256, run.data.receipt_sha256);
+  assert.deepEqual(review.data.changes, [{
+    path: targetPath,
+    sha256: sha256Hex(Buffer.from(candidateSource, "utf8")),
+  }]);
+  const afterReviewArtifacts = await readTextArtifacts({
+    state: join(initialized.data.state_dir, "runs", run.data.run_id, "state.jsonl"),
+    stateDigest: join(initialized.data.state_dir, "runs", run.data.run_id, "state.sha256"),
+    receipt: join(artifactRoot, "receipt.jsonl"),
+    receiptDigest: join(artifactRoot, "receipt.sha256"),
+    verification: join(artifactRoot, "verification.jsonl"),
+    result: join(artifactRoot, "result.jsonl"),
+  });
+  assert.deepEqual(afterReviewArtifacts, beforeReviewArtifacts);
+
   const refused = await runCli([
     "apply",
     run.data.run_id,
@@ -164,4 +203,15 @@ test("CLI process runs, receipts, and explicitly applies the Spring proof", asyn
   assert.equal(applied.data.lifecycle_state, "applied");
   assert.deepEqual(applied.data.changed_paths, [targetPath]);
   assert.equal(await readFile(join(projectRoot, targetPath), "utf8"), candidateSource);
+
+  const appliedReview = assertSuccess(await runCli([
+    "review",
+    run.data.run_id,
+    "--project",
+    projectRoot,
+  ]), "review");
+  assert.equal(appliedReview.data.lifecycle_state, "applied");
+  assert.equal(appliedReview.data.review_status, "stored_evidence_verified");
+  assert.deepEqual(appliedReview.data.approval, review.data.approval);
+  assert.deepEqual(appliedReview.data.bindings, review.data.bindings);
 });

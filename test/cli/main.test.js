@@ -90,6 +90,7 @@ test("help and version remain plain text", async () => {
   assert.equal(await runCli(["--help"], { stdout: help.stream }), 0);
   assert.match(help.read(), /^BelieveMe \(@poketopa\/believe-me\)/);
   assert.match(help.read(), /believeme run/);
+  assert.match(help.read(), /believeme review/);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(help.read())));
 
   const version = sink();
