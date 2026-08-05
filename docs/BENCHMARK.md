@@ -98,6 +98,41 @@ result for exactly two tasks and two verifier commands, not a population-level c
 about verifier quality. Mutation execution is not a provider benchmark and makes no
 token, cost, or adaptive-performance claim.
 
+## Frozen v0.2 decision cut
+
+The canonical decision report is
+`benchmarks/reports/adaptive-execution-v0.2/decision.jsonl`, with SHA-256
+`19434728e19e2887b0ea62989d13986b10e38f7a88c56135450ec837a5fce89f`.
+It binds the two existing benchmark-v1 pilot ledgers and the verifier-calibration
+ledger at prerequisite commit `cb9eed317713c28e9dba14733868d858b65f7968`.
+No new live or paid provider run was performed for this cut.
+
+| Comparison | Frozen evidence | Decision-cut status |
+| --- | --- | --- |
+| direct Codex vs current harness | one protocol-valid Roomescape benchmark-v1 pair | pilot only |
+| current harness vs ContextPack-only | none | missing frozen comparison-v2 ledger |
+| ContextPack-only vs routing-only | none | missing frozen comparison-v2 ledger |
+| routing-only vs routing-plus-repair | none | missing frozen comparison-v2 ledger |
+
+In the valid pair, direct Codex recorded zero verified successes and the harness one.
+Neither arm made an unsafe or pre-verification source change. The harness-minus-direct
+differences were `+151,237` total tokens, `+49,697 ms` wall time, and `+39,863 ms`
+Codex child time. Direct verification and orchestration timing were missing because
+the direct arm produced no change and did not run verification. Benchmark-v1 did not
+record attempt count or provider billed cost, so attempt difference, cost difference,
+and cost per verified success remain null rather than being inferred.
+
+The report preserves the source summary's 95% intervals and per-arm missingness.
+Because the bootstrap has only one independent task cluster, the available success,
+token, wall, and child-time intervals collapse to their single observed differences;
+these degenerate intervals describe the pilot and do not increase its generalizability.
+
+This single task/pair has an exact McNemar p-value of `1.0` and cannot support a
+population claim. The separate two-task verifier corpus killed all eight registered
+mutants, but also remains descriptive. The decision cut therefore reports
+`insufficient_comparative_evidence`, keeps adaptive behavior opt-in, and prohibits
+claims of generalized harness superiority or adaptive token/cost reduction.
+
 ## Sequential reporting without a success gate
 
 There is no sample upper bound and no outcome threshold that blocks report

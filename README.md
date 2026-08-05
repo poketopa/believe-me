@@ -8,7 +8,8 @@ apply atomically.
 
 > [!NOTE]
 > BelieveMe v0.1.0 is the first public release. The npm package is
-> `@poketopa/believe-me`, and the CLI command is `believeme`.
+> `@poketopa/believe-me`, and the CLI command is `believeme`. Adaptive-execution
+> work on `main` is unreleased, remains opt-in, and is not an efficacy claim.
 
 ## Install
 
@@ -35,7 +36,7 @@ skill / policy
   -> atomic apply or rollback
 ```
 
-## v0.1 scope
+## Current development scope
 
 - one npm CLI package;
 - one Codex execution adapter;
@@ -97,6 +98,15 @@ experiment appears to pass.
 The protocol and claim boundary are documented in
 [docs/BENCHMARK.md](docs/BENCHMARK.md). Living reports are descriptive; there is
 no global benchmark pass gate and no universal-efficacy claim.
+
+The frozen v0.2 decision cut finds insufficient comparative evidence to claim
+adaptive token, cost, or quality gains. The only protocol-valid live comparison is
+one Roomescape direct-versus-current-harness pilot: the harness succeeded where the
+direct arm did not, while using 151,237 more tokens and 49,697 ms more wall time.
+No compatible live ContextPack-only, routing-only, or routing-plus-repair ledger exists.
+Those features therefore remain opt-in. The canonical decision report is
+`benchmarks/reports/adaptive-execution-v0.2/decision.jsonl` with SHA-256
+`19434728e19e2887b0ea62989d13986b10e38f7a88c56135450ec837a5fce89f`.
 
 ## CLI contract
 

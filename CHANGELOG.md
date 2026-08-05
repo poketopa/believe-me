@@ -21,6 +21,9 @@ Release.
   checkpointed children, and apply only one verified winner.
 - Deterministic verifier mutation calibration with canonical evidence, retained
   false-accept cases, and exact Node/Spring corpus-diversity reporting.
+- A frozen adaptive-execution decision report that retains missing ablations and
+  unavailable cost/attempt evidence, keeps adaptive behavior opt-in, and defers
+  live-provider and public-release activation to explicit owner decisions.
 
 ## [0.1.0] - 2026-08-05
 

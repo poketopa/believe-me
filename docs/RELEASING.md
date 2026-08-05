@@ -35,6 +35,23 @@ issue after another stable release.
   for the three adapted components through
   [Issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788).
 
+## v0.2 Owner Decision Gate
+
+The frozen adaptive decision report is
+`benchmarks/reports/adaptive-execution-v0.2/decision.jsonl` with SHA-256
+`19434728e19e2887b0ea62989d13986b10e38f7a88c56135450ec837a5fce89f`.
+It records insufficient comparative evidence for an adaptive efficiency claim and keeps
+adaptive behavior opt-in. It does not change the current `0.1.0` package/runtime
+version and does not authorize a tag, GitHub Release, environment approval, or npm
+publication.
+
+Before a v0.2.0 metadata PR, the owner chooses whether to fund the missing live
+comparison-v2 ablations and whether the documented additive, opt-in feature set should
+be released without an efficacy claim. Only after that explicit decision may a separate
+reviewed metadata PR move `Unreleased` entries, update package/lock/runtime versions,
+and run the existing release procedure below. The publish trigger, permissions,
+protected `npm` environment, OIDC path, and immutable-tag rules remain unchanged.
+
 ## Local Contract Check
 
 Run both the ordinary checks and the exact release-mode contract:
