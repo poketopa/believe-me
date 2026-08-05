@@ -21,8 +21,9 @@
     "check": "node scripts/check-syntax.js",
     "benchmark:smoke:codex": "node scripts/live-benchmark-smoke.js",
     "smoke:codex": "node scripts/live-codex-smoke.js",
+    "release:check": "node scripts/check-release.js",
     "test": "node scripts/run-node-tests.js",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run --ignore-scripts"
   },
   "engines": {
     "node": ">=24",

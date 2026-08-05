@@ -215,10 +215,24 @@ measurement path but is not presented as efficacy evidence.
 
 ## npm publication
 
-Publication is intentionally disabled with `private: true`. Before the first
-public release, the project will choose its final package name, create an npm
-account/package, remove the private flag, and connect GitHub Actions through npm
-Trusted Publishing rather than storing a long-lived publish token.
+Publication is intentionally disabled with `private: true`. The checked-in
+publish workflow is a dormant contract: it listens for a published GitHub
+Release but skips unless `NPM_PUBLISH_ENABLED` is exactly `true`, and the release
+validator rejects publish mode while the package remains private.
+
+Before public npm publication, the owner must choose the final package name,
+make the repository public, resolve npm account/package setup, create the
+GitHub `npm` environment, configure npm Trusted Publishing for
+`.github/workflows/publish.yml`, remove `private:true` in a reviewed metadata
+change, and enable the repository variable only after those gates are visible.
+`THIRD_PARTY_NOTICES.md` also has an unresolved owner-source licensing blocker:
+conversational reuse permission is not durable public redistribution proof, so
+the adapted components need written redistribution/license confirmation or
+clean-room replacement first.
+
+The current release claim is limited to `dormant contract validated;
+publication blocked and unproven`. See [CHANGELOG.md](CHANGELOG.md) and
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Provenance
 
