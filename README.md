@@ -33,7 +33,7 @@ skill / policy
 - one Roomescape development fixture;
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
 
-The first CLI surface will be `init`, `run`, `status`, `receipt`, and `apply`.
+The pre-release CLI surface is `init`, `run`, `status`, `receipt`, and `apply`.
 
 ## Current proof
 
@@ -55,6 +55,51 @@ The fixture is verified through its pinned Gradle wrapper with a direct argv
 spawn (`shell: false`). Gradle distribution and dependency versions are locked;
 GitHub Actions also runs the preservation test against a digest-pinned
 PostgreSQL service.
+
+## CLI contract
+
+Every command outcome writes exactly one canonical JSONL record: success goes
+to stdout and failure goes to stderr. Help and version remain plain text.
+
+```bash
+verifiable-agent-harness init --project ./my-project
+
+verifiable-agent-harness run \
+  --project ./my-project \
+  --skill ./skill-manifest.json \
+  --executor deterministic \
+  --input ./candidate-changes.json
+
+verifiable-agent-harness status <run-id> --project ./my-project
+verifiable-agent-harness receipt <run-id> --project ./my-project
+verifiable-agent-harness apply <run-id> \
+  --approve <receipt-sha256> \
+  --project ./my-project
+```
+
+The deterministic executor accepts a declared candidate change set and is the
+implemented Milestone 1 proof path. The `codex` executor value is reserved by
+the stable CLI contract but currently returns a typed `infra_error` with exit
+code 10; it never silently falls back to deterministic execution.
+
+| Exit | Meaning |
+| ---: | --- |
+| 0 | command succeeded |
+| 2 | usage or input contract error |
+| 3 | safety refusal or unsupported persisted schema |
+| 4 | run or artifact not found |
+| 5 | verification failed |
+| 10 | infrastructure or unavailable-adapter failure |
+
+Example success record:
+
+```json
+{"command":"run","data":{"lifecycle_state":"receipted","run_id":"run-..."},"schema_version":{"major":1},"status":"ok"}
+```
+
+The complete record also includes the receipt hash, artifact root, and state
+directory. The CLI is covered both as a source process and after installing an
+`npm pack` tarball into a clean temporary project.
 
 ## Development
 

@@ -31,14 +31,19 @@ real AI provider is admitted:
 7. refuse stale source;
 8. apply atomically after explicit approval.
 
-Steps 1-7 are now implemented for the deterministic executor. The integration
+Steps 1-8 are now implemented for the deterministic executor. The integration
 proof starts from an intentionally incorrect Roomescape deadline boundary,
 restores the candidate in an isolated workspace, runs the fixture-owned Gradle
 verifier, and produces a receipt-bound non-empty change set. The original
-baseline remains unchanged until the separate approval/apply operation.
+baseline remains unchanged until the separate approval/apply operation. The
+process-level CLI proof then rejects an incorrect receipt approval, accepts the
+bound receipt hash, reruns verification, and reaches `applied`.
 
-The public JSONL CLI and Codex executor remain separate follow-up milestones;
-they must reuse these contracts rather than changing the deterministic proof.
+The stable pre-release JSONL CLI now exposes `init`, `run`, `status`, `receipt`,
+and `apply`, with one canonical record per command outcome and documented exit
+codes. The Codex executor remains a separate follow-up milestone and currently
+returns a typed unavailable-adapter failure without changing the deterministic
+proof.
 
 ## Core contracts
 
