@@ -1,4 +1,6 @@
 export const product = Object.freeze({
-  name: "verifiable-agent-harness",
+  name: "@poketopa/believe-me",
+  displayName: "BelieveMe",
+  command: "believeme",
   version: "0.0.0-development",
 });

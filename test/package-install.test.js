@@ -51,7 +51,7 @@ test("npm tarball installs with a working executable", async () => {
   const packageRoot = await mkdtemp(join(tmpdir(), "vah-package-"));
   const installRoot = await mkdtemp(join(tmpdir(), "vah-install-"));
   await writeFile(join(installRoot, "package.json"), `${JSON.stringify({
-    name: "verifiable-agent-harness-install-smoke",
+    name: "believe-me-install-smoke",
     private: true,
     version: "0.0.0",
   })}\n`);
@@ -78,7 +78,7 @@ test("npm tarball installs with a working executable", async () => {
     installRoot,
     "node_modules",
     ".bin",
-    "verifiable-agent-harness",
+    "believeme",
   );
   await mkdir(join(installRoot, "project"));
   const version = await run(executable, ["--version"], {
@@ -95,7 +95,7 @@ test("npm tarball installs with a working executable", async () => {
     [
       "--input-type=module",
       "-e",
-      "import { summarizeBenchmarkPairs, runPairedBenchmark } from 'verifiable-agent-harness'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark);",
+      "import { summarizeBenchmarkPairs, runPairedBenchmark } from '@poketopa/believe-me'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark);",
     ],
     { cwd: installRoot, env: process.env },
   );

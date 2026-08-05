@@ -88,7 +88,8 @@ test("runCli maps unexpected errors to sanitized infra_error", async () => {
 test("help and version remain plain text", async () => {
   const help = sink();
   assert.equal(await runCli(["--help"], { stdout: help.stream }), 0);
-  assert.match(help.read(), /verifiable-agent-harness run/);
+  assert.match(help.read(), /^BelieveMe \(@poketopa\/believe-me\)/);
+  assert.match(help.read(), /believeme run/);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(help.read())));
 
   const version = sink();

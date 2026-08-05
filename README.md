@@ -1,12 +1,15 @@
-# Verifiable Agent Harness
+# BelieveMe
+
+**Don't trust the summary. Verify the run.**
 
 A local-first execution harness that turns AI code changes into a verifiable
 workflow: select policy, execute in isolation, verify evidence, approve, and
 apply atomically.
 
 > [!NOTE]
-> This repository is private and pre-release. The repository and package names
-> are working names until the public npm identity is selected.
+> This repository is private and pre-release. The product identity is finalized
+> as BelieveMe, the npm package is `@poketopa/believe-me`, and the CLI command is
+> `believeme`. Public npm publication remains disabled.
 
 ## Product promise
 
@@ -91,17 +94,17 @@ Every command outcome writes exactly one canonical JSONL record: success goes
 to stdout and failure goes to stderr. Help and version remain plain text.
 
 ```bash
-verifiable-agent-harness init --project ./my-project
+believeme init --project ./my-project
 
-verifiable-agent-harness run \
+believeme run \
   --project ./my-project \
   --skill ./skill-manifest.json \
   --executor deterministic \
   --input ./candidate-changes.json
 
-verifiable-agent-harness status <run-id> --project ./my-project
-verifiable-agent-harness receipt <run-id> --project ./my-project
-verifiable-agent-harness apply <run-id> \
+believeme status <run-id> --project ./my-project
+believeme receipt <run-id> --project ./my-project
+believeme apply <run-id> \
   --approve <receipt-sha256> \
   --project ./my-project
 ```
@@ -220,9 +223,10 @@ publish workflow is a dormant contract: it listens for a published GitHub
 Release but skips unless `NPM_PUBLISH_ENABLED` is exactly `true`, and the release
 validator rejects publish mode while the package remains private.
 
-Before public npm publication, the owner must choose the final package name,
-make the repository public, resolve npm account/package setup, create the
-GitHub `npm` environment, configure npm Trusted Publishing for
+The final package identity is `@poketopa/believe-me`. Before public npm
+publication, the owner must make the repository public, resolve npm account and
+package ownership, create the GitHub `npm` environment, and configure npm
+Trusted Publishing for
 `.github/workflows/publish.yml`, remove `private:true` in a reviewed metadata
 change, and enable the repository variable only after those gates are visible.
 `THIRD_PARTY_NOTICES.md` also has an unresolved owner-source licensing blocker:

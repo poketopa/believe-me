@@ -7,8 +7,8 @@ and unproven`.
 ## Current State
 
 - `package.json` keeps `private: true`.
-- The package name and version remain the working values
-  `verifiable-agent-harness@0.0.0-development`.
+- The finalized package name and development version are
+  `@poketopa/believe-me@0.0.0-development`.
 - `.github/workflows/publish.yml` listens only for a published GitHub Release,
   but the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
 - No npm package, GitHub Release, release tag, public repository setting,
@@ -41,9 +41,10 @@ earlier step is done and reviewed.
 1. Resolve third-party redistribution rights with durable written license
    confirmation, or replace the affected adapted components through clean-room
    implementation.
-2. Choose the final npm package name and owning npm account.
-3. Confirm package-name availability and update `package.json` metadata in a
-   reviewed pull request.
+2. Keep the finalized npm identity `@poketopa/believe-me` and owner scope
+   `poketopa` consistent across package, runtime, and repository metadata.
+3. Reconfirm package-name availability immediately before the first public
+   release.
 4. Move the changelog entries for the first release from `Unreleased` to the
    chosen version.
 5. Remove `private:true` only in the same reviewed release-metadata pull request.
@@ -123,7 +124,7 @@ the current dormant state because no public package exists:
 ```bash
 npm view <package-name>@<version> name version dist.integrity provenance
 npm install --global <package-name>@<version>
-verifiable-agent-harness --version
+believeme --version
 ```
 
 Do not claim operational publication readiness until the registry package,
