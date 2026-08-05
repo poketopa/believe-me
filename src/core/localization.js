@@ -1,5 +1,9 @@
 import { basename, extname, resolve } from "node:path";
-import { validateContextPack, validateContextPackPolicy } from "../contracts/context-pack.js";
+import {
+  isContextPackExcludedPath,
+  validateContextPack,
+  validateContextPackPolicy,
+} from "../contracts/context-pack.js";
 import { safetyRefusal, usageError } from "../contracts/errors.js";
 import { canonicalJSONBytes } from "./canonical-json.js";
 import { sha256CanonicalJSON, sha256Hex } from "./hash.js";
@@ -7,16 +11,10 @@ import { containsLikelyCredential } from "./secrets.js";
 import {
   assertInsideRoot,
   compareCodeUnit,
-  isExcludedRelativePath,
   normalizeRelativePath,
   readRegularFileNoFollow,
 } from "./snapshot.js";
 
-const LOCALIZATION_EXCLUDED_DIRECTORIES = new Set([
-  ".omx",
-  "coverage",
-  "artifacts",
-]);
 const TOKEN_PATTERN = /[\p{L}\p{N}_$.-]+/gu;
 const SYMBOL_PATTERN = /[$_\p{L}][$_\p{L}\p{N}]*/gu;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -37,12 +35,6 @@ function emptyOmissionCounts() {
     oversized: 0,
     secret_content: 0,
   };
-}
-
-function localizationExcluded(path) {
-  return isExcludedRelativePath(path) || path
-    .split("/")
-    .some((part) => LOCALIZATION_EXCLUDED_DIRECTORIES.has(part));
 }
 
 function tokenizeTask(task) {
@@ -274,7 +266,7 @@ export async function buildContextPack(options) {
   for (const snapshotEntry of [...snapshot.entries]
     .sort((left, right) => compareCodeUnit(left.path, right.path))) {
     const path = normalizeRelativePath(projectRoot, snapshotEntry.path);
-    if (localizationExcluded(path)) {
+    if (isContextPackExcludedPath(path)) {
       omissions.excluded_path += 1;
       continue;
     }

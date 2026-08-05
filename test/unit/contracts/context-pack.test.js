@@ -114,3 +114,36 @@ test("ContextPack requires explicit fallback and truncation state", () => {
   contradictory.truncated = true;
   assert.throws(() => validateContextPack(contradictory), /truncation/u);
 });
+
+test("ContextPack rejects excluded paths, binary bytes, and credential-like excerpts", () => {
+  for (const path of [
+    "generated/client.js",
+    "src/generated/client.js",
+    "evidence/previous.jsonl",
+    ".omx/state.json",
+  ]) {
+    const value = pack();
+    value.entries[0].path = path;
+    assert.throws(() => validateContextPack(value), /excluded/u);
+  }
+
+  const binary = pack();
+  const binaryBytes = Buffer.from([0, 1]);
+  Object.assign(binary.entries[0].excerpts[0], {
+    end_byte: binaryBytes.byteLength,
+    content_base64: binaryBytes.toString("base64"),
+    sha256: sha256Hex(binaryBytes),
+  });
+  binary.total_bytes = binaryBytes.byteLength;
+  assert.throws(() => validateContextPack(binary), /UTF-8/u);
+
+  const secret = pack();
+  const secretBytes = Buffer.from('api_key="abcdefghijklmnop"\n', "utf8");
+  Object.assign(secret.entries[0].excerpts[0], {
+    end_byte: secretBytes.byteLength,
+    content_base64: secretBytes.toString("base64"),
+    sha256: sha256Hex(secretBytes),
+  });
+  secret.total_bytes = secretBytes.byteLength;
+  assert.throws(() => validateContextPack(secret), /credential/u);
+});

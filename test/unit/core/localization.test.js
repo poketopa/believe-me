@@ -51,7 +51,13 @@ test("same frozen source task and policy yield byte-identical ContextPack", asyn
 test("ContextPack excludes state, secret content, binary, empty, and oversized files", async () => {
   const root = await project();
   await mkdir(join(root, ".omx"));
+  await mkdir(join(root, "generated"));
+  await mkdir(join(root, "src", "generated"));
+  await mkdir(join(root, "evidence"));
   await writeFile(join(root, ".omx", "state.json"), "state");
+  await writeFile(join(root, "generated", "client.js"), "export const generated = true;\n");
+  await writeFile(join(root, "src", "generated", "client.js"), "export const generated = true;\n");
+  await writeFile(join(root, "evidence", "previous.jsonl"), "{}\n");
   await writeFile(join(root, "credential-source.txt"), "ordinary");
   await writeFile(join(root, "src", "embedded.txt"), 'api_key="abcdefghijklmnop"\n');
   await writeFile(join(root, "src", "binary.dat"), Buffer.from([0, 1, 2]));
@@ -74,7 +80,7 @@ test("ContextPack excludes state, secret content, binary, empty, and oversized f
   assert.equal(pack.fallback_reason, "no_match");
   assert.equal(pack.entries.every((entry) => !entry.path.startsWith(".omx/")), true);
   assert.equal(pack.entries.every((entry) => !entry.path.includes("embedded")), true);
-  assert.equal(pack.omission_counts.excluded_path, 1);
+  assert.equal(pack.omission_counts.excluded_path, 4);
   assert.equal(pack.omission_counts.secret_content, 1);
   assert.equal(pack.omission_counts.binary, 1);
   assert.equal(pack.omission_counts.empty, 1);

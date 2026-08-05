@@ -101,6 +101,7 @@ export {
   CONTEXT_PACK_SELECTION_REASONS,
   CONTEXT_PACK_SELECTION_STATUSES,
   freezeContextPack,
+  isContextPackExcludedPath,
   validateContextPack,
   validateContextPackPolicy,
 } from "./contracts/context-pack.js";

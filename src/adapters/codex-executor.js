@@ -193,6 +193,15 @@ export function createCodexExecutor({
     }
     const root = resolve(workspaceRoot);
     const taskInput = validateCodexTaskInput(input.input);
+    if (
+      taskInput.context_pack !== undefined &&
+      taskInput.context_pack.source_snapshot_sha256 !== input.source_snapshot_sha256
+    ) {
+      throw safetyRefusal("Codex ContextPack does not match the frozen source snapshot.", {
+        expected_sha256: input.source_snapshot_sha256,
+        actual_sha256: taskInput.context_pack.source_snapshot_sha256,
+      });
+    }
     const allowedPaths = normalizedAllowedPaths(root, taskInput);
     const before = await captureWorkspaceInventory(root);
     const output = await transport({

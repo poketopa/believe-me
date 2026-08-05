@@ -9,6 +9,8 @@ import {
 } from "./common.js";
 import { usageError } from "./errors.js";
 import { sha256CanonicalJSON, sha256Hex } from "../core/hash.js";
+import { containsLikelyCredential } from "../core/secrets.js";
+import { isExcludedRelativePath } from "../core/snapshot.js";
 
 export const CONTEXT_PACK_SELECTION_STATUSES = Object.freeze([
   "matched",
@@ -80,6 +82,20 @@ export const CONTEXT_PACK_EXCERPT_REQUIRED_FIELDS = Object.freeze([
 
 const NORMALIZED_PATH_PATTERN =
   /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))(?!.*\/\/)[^\\\0]+$/u;
+const CONTEXT_PACK_EXCLUDED_DIRECTORIES = new Set([
+  ".omx",
+  "artifacts",
+  "coverage",
+  "evidence",
+  "generated",
+]);
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+export function isContextPackExcludedPath(path) {
+  return isExcludedRelativePath(path) || path
+    .split("/")
+    .some((part) => CONTEXT_PACK_EXCLUDED_DIRECTORIES.has(part));
+}
 
 function assertPositiveSafeInteger(value, field) {
   if (!Number.isSafeInteger(value) || value <= 0) {
@@ -141,6 +157,21 @@ function validateExcerpt(value, entryPath) {
       path: entryPath,
     });
   }
+  try {
+    if (bytes.includes(0)) {
+      throw new TypeError("NUL byte");
+    }
+    UTF8_DECODER.decode(bytes);
+  } catch {
+    throw usageError("ContextPack excerpt must contain valid non-binary UTF-8 text.", {
+      path: entryPath,
+    });
+  }
+  if (containsLikelyCredential(bytes)) {
+    throw usageError("ContextPack excerpt must not contain credential-like text.", {
+      path: entryPath,
+    });
+  }
   assertSha256Hex(value.sha256, "excerpt.sha256");
   if (sha256Hex(bytes) !== value.sha256) {
     throw usageError("ContextPack excerpt digest mismatch.", { path: entryPath });
@@ -172,6 +203,11 @@ function validateEntries(entries, policy) {
     assertString(entry.path, "entry.path");
     if (!NORMALIZED_PATH_PATTERN.test(entry.path) || entry.path.endsWith("/")) {
       throw usageError("ContextPack entry path must be normalized and relative.", {
+        path: entry.path,
+      });
+    }
+    if (isContextPackExcludedPath(entry.path)) {
+      throw usageError("ContextPack entry path is excluded from localization.", {
         path: entry.path,
       });
     }
