@@ -43,6 +43,7 @@ skill / policy
 - one Spring use-case policy;
 - one Roomescape development fixture;
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
+- deterministic verifier mutation calibration over independent Node and Spring tasks.
 
 The CLI surface is `init`, `run`, `status`, `receipt`, `apply`, and the additive
 `apply-session` command for a verified adaptive-session winner.

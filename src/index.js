@@ -272,22 +272,38 @@ export {
 export {
   buildBenchmarkLedger,
   buildComparisonV2Ledger,
+  buildMutationCalibrationLedger,
   parseBenchmarkLedger,
   parseComparisonV2Ledger,
+  parseMutationCalibrationLedger,
   readBenchmarkLedger,
   readComparisonV2Ledger,
+  readMutationCalibrationLedger,
   writeBenchmarkLedger,
   writeComparisonV2Ledger,
+  writeMutationCalibrationLedger,
 } from "./benchmark/ledger.js";
+export {
+  MUTATION_EXPECTED_VERIFIER_OUTCOMES,
+  MUTATION_FAMILIES,
+  MUTATION_FIXTURE_KINDS,
+  MUTATION_OUTCOMES,
+  MUTATION_VERIFIER_STATUSES,
+  validateMutationDefinition,
+  validateMutationObservation,
+  validateMutationRegistry,
+} from "./benchmark/mutations.js";
 export {
   pairedOrder,
   runDirectCodexBenchmarkArm,
   runHarnessBenchmarkArm,
   runPairedBenchmark,
+  runVerifierMutationCalibration,
 } from "./benchmark/runner.js";
 export {
   summarizeBenchmarkPairs,
   summarizeComparisonV2Pairs,
+  summarizeMutationCalibration,
 } from "./benchmark/statistics.js";
 export {
   executeCliCommand,

@@ -6,6 +6,12 @@ import {
   validateBenchmarkPairResult,
   validateComparisonV2PairResult,
 } from "./contracts.js";
+import {
+  MUTATION_FAMILIES,
+  MUTATION_OUTCOMES,
+  validateMutationObservation,
+  validateMutationRegistry,
+} from "./mutations.js";
 
 const arms = Object.freeze(["direct_codex", "harness"]);
 const terminalStatuses = Object.freeze([
@@ -695,6 +701,103 @@ export function summarizeComparisonV2Pairs(pairRecords, options = undefined) {
     cost: {
       control: comparisonV2CostArm(pairs, "control"),
       treatment: comparisonV2CostArm(pairs, "treatment"),
+    },
+  });
+}
+
+export function summarizeMutationCalibration(registryValue, observationValues) {
+  const registry = validateMutationRegistry(registryValue);
+  if (!Array.isArray(observationValues)) {
+    throw usageError("mutation observations must be an array.", {
+      field: "observations",
+    });
+  }
+  const observations = observationValues.map((value) =>
+    validateMutationObservation(value));
+  if (observations.length !== registry.mutations.length) {
+    throw usageError("mutation calibration requires one observation per registered mutant.");
+  }
+
+  const definitionById = new Map(registry.mutations.map((mutation) => [
+    mutation.mutation_id,
+    mutation,
+  ]));
+  const observedIds = new Set();
+  const outcomeCounts = Object.fromEntries(MUTATION_OUTCOMES.map((outcome) => [
+    outcome,
+    0,
+  ]));
+  const familyCounts = Object.fromEntries(MUTATION_FAMILIES.map((family) => [
+    family,
+    Object.fromEntries(MUTATION_OUTCOMES.map((outcome) => [outcome, 0])),
+  ]));
+
+  for (const observation of observations) {
+    const definition = definitionById.get(observation.mutation_id);
+    if (
+      definition === undefined ||
+      observedIds.has(observation.mutation_id) ||
+      observation.corpus_id !== registry.corpus_id ||
+      observation.registry_sha256 !== registry.registry_sha256 ||
+      observation.mutation_sha256 !== definition.mutation_sha256 ||
+      observation.task_id !== definition.task_id ||
+      observation.fixture_kind !== definition.fixture_kind ||
+      observation.target_path !== definition.target_path ||
+      observation.baseline_sha256 !== definition.baseline_sha256 ||
+      (observation.outcome !== "invalid" &&
+        observation.target_sha256 !== definition.mutated_sha256) ||
+      observation.expected_verifier_outcome !==
+        definition.expected_verifier_outcome
+    ) {
+      throw usageError(
+        "mutation observation does not match its registered deterministic mutant.",
+        { mutation_id: observation.mutation_id },
+      );
+    }
+    observedIds.add(observation.mutation_id);
+    outcomeCounts[observation.outcome] += 1;
+    familyCounts[definition.family][observation.outcome] += 1;
+  }
+
+  const expectedRejectCount = registry.mutations.filter((mutation) =>
+    mutation.expected_verifier_outcome === "reject").length;
+  const scoredCount = outcomeCounts.killed + outcomeCounts.survived;
+  const tasks = [...new Set(registry.mutations.map((mutation) => mutation.task_id))]
+    .toSorted();
+  const fixtureKinds = [...new Set(registry.mutations.map((mutation) =>
+    mutation.fixture_kind))].toSorted();
+  const verifierCommands = [...new Set(registry.mutations.map((mutation) =>
+    sha256Hex(canonicalJSONBytes({
+      adapter_id: mutation.verifier.adapter_id,
+      command: mutation.verifier.command,
+      args: mutation.verifier.args,
+    }))))].toSorted();
+
+  return deepFreeze({
+    schema_version: { major: 1 },
+    corpus_id: registry.corpus_id,
+    registry_sha256: registry.registry_sha256,
+    registered_mutation_count: registry.mutations.length,
+    observed_mutation_count: observations.length,
+    expected_reject_count: expectedRejectCount,
+    scored_mutation_count: scoredCount,
+    outcome_counts: outcomeCounts,
+    mutation_score: scoredCount === 0
+      ? null
+      : outcomeCounts.killed / scoredCount,
+    false_accept_count: outcomeCounts.survived,
+    false_accept_rate: expectedRejectCount === 0
+      ? null
+      : outcomeCounts.survived / expectedRejectCount,
+    family_outcome_counts: familyCounts,
+    corpus_diversity: {
+      task_count: tasks.length,
+      task_ids: tasks,
+      fixture_kind_count: fixtureKinds.length,
+      fixture_kinds: fixtureKinds,
+      verifier_command_count: verifierCommands.length,
+      verifier_command_sha256: verifierCommands,
+      claim_scope: "descriptive_corpus_only",
     },
   });
 }
