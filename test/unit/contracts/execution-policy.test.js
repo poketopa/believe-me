@@ -173,3 +173,24 @@ test("execution policy admits only bounded provider-neutral route constraints", 
     assert.throws(() => validateExecutionPolicy(invalid), /route\.match|risk_tiers/u);
   }
 });
+
+test("execution policy accepts an optional currency-bound aggregate cost cap", () => {
+  const value = validateExecutionPolicy(policy({
+    cost_budget: {
+      amount: 1.25,
+      currency: "USD",
+      pricing_source: "registered-pricing",
+    },
+  }));
+  assert.equal(value.cost_budget.amount, 1.25);
+  for (const cost_budget of [
+    { amount: 0, currency: "USD", pricing_source: "registered-pricing" },
+    { amount: 1, currency: "usd", pricing_source: "registered-pricing" },
+    { amount: 1, currency: "USD" },
+  ]) {
+    assert.throws(
+      () => validateExecutionPolicy(policy({ cost_budget })),
+      /cost_budget/u,
+    );
+  }
+});

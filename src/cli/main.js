@@ -15,6 +15,7 @@ export function cliHelpText() {
     `  ${product.command} status <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} receipt <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} apply-session <session-id> --approve <winner-receipt-sha256> [--project <path>] [--state-dir <path>]`,
     "",
     "Command results are emitted as one canonical JSONL record.",
     "Help and version output remain plain text.",

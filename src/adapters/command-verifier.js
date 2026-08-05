@@ -24,7 +24,7 @@ function wait(milliseconds) {
 }
 
 export async function runCommandVerifier(options = {}) {
-  const { projectRoot, spec, spawnImpl, processKill } = validateOptions(options);
+  const { projectRoot, spec, spawnImpl, processKill, signal } = validateOptions(options);
   const root = await validateProjectRoot(projectRoot);
   const verifierSpec = validateVerifierSpec(spec);
   assertCommandVerifierSpec(verifierSpec);
@@ -35,6 +35,7 @@ export async function runCommandVerifier(options = {}) {
     spec: verifierSpec,
     spawnImpl,
     processKill,
+    signal,
   });
 }
 
@@ -78,12 +79,22 @@ function validateOptions(options) {
   if (typeof (options.processKill ?? process.kill) !== "function") {
     throw usageError("processKill must be a function.", { field: "processKill" });
   }
+  if (
+    options.signal !== undefined &&
+    (options.signal === null ||
+      typeof options.signal.aborted !== "boolean" ||
+      typeof options.signal.addEventListener !== "function" ||
+      typeof options.signal.removeEventListener !== "function")
+  ) {
+    throw usageError("signal must be an AbortSignal.", { field: "signal" });
+  }
 
   return {
     projectRoot: options.projectRoot,
     spec: options.spec,
     spawnImpl: options.spawnImpl ?? spawn,
     processKill: options.processKill ?? process.kill,
+    signal: options.signal,
   };
 }
 
@@ -114,7 +125,7 @@ function assertCommandVerifierSpec(spec) {
   }
 }
 
-async function runVerifierProcess({ root, spec, spawnImpl, processKill }) {
+async function runVerifierProcess({ root, spec, spawnImpl, processKill, signal }) {
   const processGroupEnabled = process.platform !== "win32";
   let child;
   try {
@@ -146,6 +157,7 @@ async function runVerifierProcess({ root, spec, spawnImpl, processKill }) {
   let forceSettleTimer;
   let childClosed = false;
   let cleanupError = null;
+  let removeAbortListener = () => {};
 
   function signalProcessTree(signal) {
     if (!processGroupEnabled || !Number.isSafeInteger(child.pid)) {
@@ -195,7 +207,7 @@ async function runVerifierProcess({ root, spec, spawnImpl, processKill }) {
   function requestStop(reason) {
     if (reason === "timeout") {
       timedOut = true;
-    } else {
+    } else if (reason === "output_bound") {
       outputBoundExceeded = true;
     }
     if (stopRequested) {
@@ -224,6 +236,12 @@ async function runVerifierProcess({ root, spec, spawnImpl, processKill }) {
   const timeout = setTimeout(() => {
     requestStop("timeout");
   }, spec.timeout_ms);
+  if (signal !== undefined) {
+    const abort = () => requestStop("abort");
+    signal.addEventListener("abort", abort, { once: true });
+    removeAbortListener = () => signal.removeEventListener("abort", abort);
+    if (signal.aborted) abort();
+  }
 
   let outcome;
   let processError;
@@ -254,6 +272,7 @@ async function runVerifierProcess({ root, spec, spawnImpl, processKill }) {
   } catch (error) {
     processError = error;
   } finally {
+    removeAbortListener();
     clearTimeout(timeout);
     clearTimeout(forceKillTimer);
     clearTimeout(forceSettleTimer);

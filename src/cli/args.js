@@ -26,6 +26,11 @@ const commands = Object.freeze({
     requiredFlags: Object.freeze(["approve"]),
     positionals: 1,
   }),
+  "apply-session": Object.freeze({
+    flags: Object.freeze(["approve", "project", "state-dir"]),
+    requiredFlags: Object.freeze(["approve"]),
+    positionals: 1,
+  }),
 });
 
 const commandNames = Object.freeze(Object.keys(commands));

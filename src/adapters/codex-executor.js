@@ -187,7 +187,7 @@ export function createCodexExecutor({
     throw usageError("Codex executor dependencies must be functions.");
   }
 
-  return async function executeCodex({ workspaceRoot, input }) {
+  return async function executeCodex({ workspaceRoot, input, signal }) {
     if (input?.executor_kind !== "codex") {
       throw usageError("Codex executor requires executor_kind 'codex'.");
     }
@@ -207,6 +207,7 @@ export function createCodexExecutor({
     const output = await transport({
       prompt: createPrompt(taskInput),
       workspace: root,
+      signal,
     });
     assertCodexTransportCompleted(output);
     const eventEvidence = inspectCodexEvents(output.events, {

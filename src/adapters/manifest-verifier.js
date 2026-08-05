@@ -28,9 +28,11 @@ export function createManifestVerifier(manifest, options = {}) {
     return async (request) => commandRunner({
       projectRoot: workspaceFromRequest(request),
       spec,
+      signal: request.signal,
     });
   }
   return async (request) => springRunner({
     fixtureRoot: workspaceFromRequest(request),
+    signal: request.signal,
   });
 }

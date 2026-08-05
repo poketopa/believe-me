@@ -188,6 +188,40 @@ test("command verifier terminates on timeout", async () => {
   assert.equal(killedWith, "SIGTERM");
 });
 
+test("command verifier terminates on parent abort", async () => {
+  const root = await projectRoot();
+  const controller = new AbortController();
+  let killedWith;
+  let markStarted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  const running = runCommandVerifier({
+    projectRoot: root,
+    spec,
+    signal: controller.signal,
+    spawnImpl() {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = (signal) => {
+        killedWith = signal;
+        child.emit("close", null, signal);
+        return true;
+      };
+      markStarted();
+      return child;
+    },
+  });
+  await started;
+  controller.abort();
+  await assert.rejects(running, (error) => {
+    assert.equal(error.code, "verification_failed");
+    assert.equal(error.details.result.signal, "SIGTERM");
+    assert.equal(error.details.result.timed_out, false);
+    return true;
+  });
+  assert.equal(killedWith, "SIGTERM");
+});
+
 test("command verifier fails closed when the child ignores termination", async () => {
   const root = await projectRoot();
   const signals = [];

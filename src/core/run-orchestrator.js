@@ -589,6 +589,7 @@ async function executeRun(context, options) {
       workspaceRoot,
       input: context.inputs.executorInput.value,
       plan: context.inputs.workflowPlan.value,
+      signal: options.signal,
     }));
     if (result.run_id !== state.run_id) {
       throw safetyRefusal("Executor result run id does not match run state.");
@@ -629,6 +630,7 @@ async function executeRun(context, options) {
       workspaceRoot,
       result,
       plan: context.inputs.workflowPlan.value,
+      signal: options.signal,
     });
     if (verification === true) {
       verification = {
@@ -746,6 +748,7 @@ export async function runHarness(options = {}) {
     routeSelection = selectExecutionRoute({
       policy: request.policy,
       features,
+      reason: request.reason,
     });
     const routed = createOneAttemptRoutedExecutor({
       selection: routeSelection,
@@ -885,9 +888,11 @@ export async function runOneAttemptRoutedHarness(options = {}) {
       policy: options.policy,
       riskTier: options.riskTier,
       adapterRegistry: options.adapterRegistry,
+      reason: options.routeReason ?? "initial",
     },
     recordedAt: options.recordedAt,
     onCheckpoint: options.onCheckpoint,
+    signal: options.signal,
   });
 }
 

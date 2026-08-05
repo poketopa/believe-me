@@ -260,6 +260,86 @@ test("apply delegates approval and verifier without changing CLI contract", asyn
   assert.deepEqual(result.changed_paths, ["src/app.txt"]);
 });
 
+test("apply-session delegates only the unique verified winning child", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const missingTiming = {
+    wall_ms: 0,
+    executor_ms: null,
+    executor_ms_missing_reason: "adapter_not_instrumented",
+    verification_ms: null,
+    verification_ms_missing_reason: "adapter_not_instrumented",
+    orchestration_ms: null,
+    orchestration_ms_missing_reason: "adapter_not_instrumented",
+    localization_ms: null,
+    localization_ms_missing_reason: "not_applicable",
+    routing_ms: null,
+    routing_ms_missing_reason: "not_applicable",
+  };
+  const winner = {
+    attempt_index: 0,
+    attempt_id: "session-1-attempt-1",
+    child_run_id: "session-1-child-1",
+    child_run_evidence_sha256: hash,
+    route_id: "initial",
+    route_reason: "initial",
+    adapter_id: "fixture",
+    model_id: "model",
+    reasoning_effort: "low",
+    context_pack_sha256: hash,
+    status: "completed",
+    verification_status: "passed",
+    winner: true,
+    usage: null,
+    usage_missing_reason: "adapter_not_instrumented",
+    timing: missingTiming,
+    cost: null,
+    cost_missing_reason: "provider_not_reported",
+  };
+  let appliedRunId;
+  const result = await executeCliCommand({
+    command: "apply-session",
+    runId: "session-1",
+    approve: hash,
+    project: projectRoot,
+  }, {
+    readAdaptiveSession: async () => ({
+      session: {
+        schema_version: { major: 1 },
+        session_id: "session-1",
+        policy_sha256: hash,
+        context_pack_sha256: hash,
+        attempts: [winner],
+        aggregate_usage: null,
+        aggregate_usage_missing_reason: "adapter_not_instrumented",
+        aggregate_timing: missingTiming,
+        aggregate_cost: null,
+        aggregate_cost_missing_reason: "provider_not_reported",
+        terminal_reason: "winner",
+      },
+    }),
+    readRunState: async () => ({
+      state: {
+        run_id: winner.child_run_id,
+        lifecycle_state: "receipted",
+        receipt_sha256: hash,
+      },
+    }),
+    verifyAppliedProject: async () => true,
+    async applyEvidenceBundle(options) {
+      appliedRunId = options.runId;
+      return {
+        state: { run_id: options.runId, lifecycle_state: "applied" },
+        receipt_sha256: hash,
+        changed_paths: ["src/app.txt"],
+      };
+    },
+  });
+
+  assert.equal(appliedRunId, winner.child_run_id);
+  assert.equal(result.session_id, "session-1");
+  assert.equal(result.run_id, winner.child_run_id);
+});
+
 test("apply resolves verification from the digest-bound frozen manifest", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
   const manifest = {

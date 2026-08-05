@@ -32,6 +32,7 @@ export async function runSpringVerifier(options = {}) {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
     spawnImpl = spawn,
+    signal,
   } = validateOptions(options);
 
   const root = await validateFixtureRoot(fixtureRoot);
@@ -44,6 +45,7 @@ export async function runSpringVerifier(options = {}) {
     timeoutMs,
     maxOutputBytes,
     spawnImpl,
+    signal,
   });
 }
 
@@ -65,12 +67,22 @@ function validateOptions(options) {
   if (typeof (options.spawnImpl ?? spawn) !== "function") {
     throw usageError("spawnImpl must be a function.", { field: "spawnImpl" });
   }
+  if (
+    options.signal !== undefined &&
+    (options.signal === null ||
+      typeof options.signal.aborted !== "boolean" ||
+      typeof options.signal.addEventListener !== "function" ||
+      typeof options.signal.removeEventListener !== "function")
+  ) {
+    throw usageError("signal must be an AbortSignal.", { field: "signal" });
+  }
 
   return {
     fixtureRoot: options.fixtureRoot,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     spawnImpl: options.spawnImpl ?? spawn,
+    signal: options.signal,
   };
 }
 
@@ -199,6 +211,7 @@ async function runVerifierProcess({
   timeoutMs,
   maxOutputBytes,
   spawnImpl,
+  signal,
 }) {
   let child;
   try {
@@ -227,11 +240,12 @@ async function runVerifierProcess({
   let settleOutcome;
   let forceKillTimer;
   let forceSettleTimer;
+  let removeAbortListener = () => {};
 
   function requestStop(reason) {
     if (reason === "timeout") {
       timedOut = true;
-    } else {
+    } else if (reason === "output_bound") {
       outputBoundExceeded = true;
     }
     if (stopRequested) {
@@ -260,6 +274,12 @@ async function runVerifierProcess({
   const timeout = setTimeout(() => {
     requestStop("timeout");
   }, timeoutMs);
+  if (signal !== undefined) {
+    const abort = () => requestStop("abort");
+    signal.addEventListener("abort", abort, { once: true });
+    removeAbortListener = () => signal.removeEventListener("abort", abort);
+    if (signal.aborted) abort();
+  }
 
   const outcome = await new Promise((resolveOutcome, rejectOutcome) => {
     let settled = false;
@@ -282,6 +302,7 @@ async function runVerifierProcess({
       settleOutcome({ exitCode, signal });
     });
   }).finally(() => {
+    removeAbortListener();
     clearTimeout(timeout);
     clearTimeout(forceKillTimer);
     clearTimeout(forceSettleTimer);
