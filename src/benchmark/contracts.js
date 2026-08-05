@@ -80,6 +80,79 @@ export const BENCHMARK_PROTOCOL_INVALID_REASONS = Object.freeze([
   "registered_protocol_deviation",
 ]);
 
+export const COMPARISON_V2_VERSION = 2;
+export const COMPARISON_V2_ORDER_ALGORITHM = "sha256-arm-alternating-v2";
+export const COMPARISON_V2_ROLES = Object.freeze(["control", "treatment"]);
+export const COMPARISON_V2_COST_OBSERVATION_STATUSES = Object.freeze([
+  "observed_billed",
+  "estimated",
+]);
+export const COMPARISON_V2_MISSING_REASONS = Object.freeze([
+  "provider_not_reported",
+  "execution_not_started",
+  "component_not_run",
+  "not_instrumented",
+  "redacted",
+  "currency_mismatch",
+]);
+export const COMPARISON_V2_PROTOCOL_INVALID_REASONS = Object.freeze([
+  "provider_configuration_unobserved",
+  "provider_configuration_mismatch",
+  "policy_mismatch",
+  "source_mismatch",
+  "task_mismatch",
+  "verifier_mismatch",
+  "order_deviation",
+  "registered_protocol_deviation",
+]);
+
+export const COMPARISON_V2_EXPERIMENT_REQUIRED_FIELDS = Object.freeze([
+  "schema_version",
+  "comparison_version",
+  "comparison_id",
+  "seed",
+  "order_algorithm",
+  "analysis_cut_frozen",
+  "verifier_sha256",
+  "corpus_sha256",
+  "control",
+  "treatment",
+]);
+export const COMPARISON_V2_TASK_REQUIRED_FIELDS = Object.freeze([
+  "schema_version",
+  "comparison_version",
+  "comparison_id",
+  "pair_id",
+  "task_id",
+  "repeat_index",
+  "project_ref",
+  "source_sha256",
+  "task_sha256",
+]);
+export const COMPARISON_V2_ARM_RESULT_REQUIRED_FIELDS = Object.freeze([
+  "schema_version",
+  "comparison_version",
+  "experiment",
+  "task",
+  "role",
+  "name",
+  "provider_sha256",
+  "policy_sha256",
+  "configuration_sha256",
+  "observation",
+]);
+export const COMPARISON_V2_PAIR_RESULT_REQUIRED_FIELDS = Object.freeze([
+  "schema_version",
+  "comparison_version",
+  "experiment",
+  "task",
+  "order",
+  "protocol_valid",
+  "protocol_invalid_reasons",
+  "control",
+  "treatment",
+]);
+
 const normalizedPathPattern =
   /^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))(?!.*\/\/)[^\\\0]+$/u;
 
@@ -309,6 +382,135 @@ function assertSameRecord(left, right, field) {
   }
 }
 
+function assertComparisonVersion(value, field = "comparison_version") {
+  if (value !== COMPARISON_V2_VERSION) {
+    throw usageError(`${field} must be exactly ${COMPARISON_V2_VERSION}.`, {
+      field,
+    });
+  }
+}
+
+function assertComparisonArmDescriptor(value, role) {
+  assertRequiredFields(
+    value,
+    ["name", "provider_sha256", "policy_sha256", "configuration_sha256"],
+    `${role} descriptor`,
+  );
+  assertString(value.name, `${role}.name`);
+  assertSha256Hex(value.provider_sha256, `${role}.provider_sha256`);
+  assertSha256Hex(value.policy_sha256, `${role}.policy_sha256`);
+  assertSha256Hex(value.configuration_sha256, `${role}.configuration_sha256`);
+}
+
+function assertComparisonMissingReason(value, field) {
+  assertEnum(value, field, COMPARISON_V2_MISSING_REASONS);
+}
+
+function assertComparisonUsage(value, missingReason) {
+  assertCodexUsageOrNull(value, missingReason);
+  if (value === null) {
+    assertComparisonMissingReason(missingReason, "usage_missing_reason");
+  }
+}
+
+function assertComparisonCost(value, missingReason) {
+  if (value === null) {
+    assertComparisonMissingReason(missingReason, "cost_missing_reason");
+    return;
+  }
+  if (missingReason !== null) {
+    throw usageError("cost_missing_reason must be null when cost is present.", {
+      field: "cost_missing_reason",
+    });
+  }
+  assertRequiredFields(
+    value,
+    ["amount", "currency", "pricing_source", "observation_status"],
+    "cost",
+  );
+  if (typeof value.amount !== "number" || !Number.isFinite(value.amount) || value.amount < 0) {
+    throw usageError("cost.amount must be a nonnegative finite number.", {
+      field: "cost.amount",
+    });
+  }
+  if (typeof value.currency !== "string" || !/^[A-Z]{3}$/u.test(value.currency)) {
+    throw usageError("cost.currency must be a three-letter uppercase currency code.", {
+      field: "cost.currency",
+    });
+  }
+  assertString(value.pricing_source, "cost.pricing_source");
+  assertEnum(
+    value.observation_status,
+    "cost.observation_status",
+    COMPARISON_V2_COST_OBSERVATION_STATUSES,
+  );
+}
+
+function assertComparisonObservation(value) {
+  assertRequiredFields(
+    value,
+    [
+      "terminal_status",
+      "verified_success",
+      "unsafe_or_out_of_scope",
+      "attempt_count",
+      "usage",
+      "usage_missing_reason",
+      "wall_ms",
+      "cost",
+      "cost_missing_reason",
+      "artifact_hashes",
+    ],
+    "Comparison v2 arm observation",
+  );
+  assertEnum(value.terminal_status, "terminal_status", BENCHMARK_TERMINAL_STATUSES);
+  assertBoolean(value.verified_success, "verified_success");
+  assertBoolean(value.unsafe_or_out_of_scope, "unsafe_or_out_of_scope");
+  assertNonnegativeSafeInteger(value.attempt_count, "attempt_count");
+  assertComparisonUsage(value.usage, value.usage_missing_reason);
+  assertNonnegativeSafeInteger(value.wall_ms, "wall_ms");
+  assertComparisonCost(value.cost, value.cost_missing_reason);
+  assertSha256OrNullObject(value.artifact_hashes, "artifact_hashes");
+  if (
+    value.verified_success &&
+    (value.terminal_status !== "completed" || value.unsafe_or_out_of_scope)
+  ) {
+    throw usageError(
+      "verified_success requires a completed, safe comparison observation.",
+    );
+  }
+  if (value.terminal_status === "completed" && !value.verified_success) {
+    throw usageError("completed comparison observations must be verified successes.");
+  }
+  if (value.terminal_status === "completed" && value.attempt_count === 0) {
+    throw usageError("completed comparison observations require an attempt.");
+  }
+  if (value.terminal_status === "verification_failed" && value.attempt_count === 0) {
+    throw usageError("verification_failed comparison observations require an attempt.");
+  }
+  if (
+    value.attempt_count === 0 &&
+    (value.usage !== null || value.cost !== null)
+  ) {
+    throw usageError("zero-attempt comparison observations cannot report usage or cost.");
+  }
+  if (
+    value.attempt_count > 0 &&
+    (value.usage_missing_reason === "execution_not_started" ||
+      value.cost_missing_reason === "execution_not_started")
+  ) {
+    throw usageError(
+      "execution_not_started missing reasons require zero attempts.",
+    );
+  }
+  if (
+    value.terminal_status === "safety_refusal" &&
+    !value.unsafe_or_out_of_scope
+  ) {
+    throw usageError("safety_refusal comparison observations must be unsafe.");
+  }
+}
+
 export function validateBenchmarkExperiment(value, options = {}) {
   validateContractBase(
     value,
@@ -486,5 +688,141 @@ export function validateBenchmarkPairResult(value, options = {}) {
     );
   }
 
+  return deepFreeze(structuredClone(value));
+}
+
+export function validateComparisonV2Experiment(value, options = {}) {
+  validateContractBase(
+    value,
+    COMPARISON_V2_EXPERIMENT_REQUIRED_FIELDS,
+    "ComparisonV2Experiment",
+    options,
+  );
+  assertComparisonVersion(value.comparison_version);
+  assertString(value.comparison_id, "comparison_id");
+  assertSeed(value.seed);
+  assertEnum(
+    value.order_algorithm,
+    "order_algorithm",
+    [COMPARISON_V2_ORDER_ALGORITHM],
+  );
+  assertBoolean(value.analysis_cut_frozen, "analysis_cut_frozen");
+  assertSha256Hex(value.verifier_sha256, "verifier_sha256");
+  assertSha256Hex(value.corpus_sha256, "corpus_sha256");
+  assertComparisonArmDescriptor(value.control, "control");
+  assertComparisonArmDescriptor(value.treatment, "treatment");
+  if (value.control.name === value.treatment.name) {
+    throw usageError("comparison arm names must be distinct.", {
+      field: "control.name",
+    });
+  }
+  return deepFreeze(structuredClone(value));
+}
+
+export function validateComparisonV2Task(value, options = {}) {
+  validateContractBase(
+    value,
+    COMPARISON_V2_TASK_REQUIRED_FIELDS,
+    "ComparisonV2Task",
+    options,
+  );
+  assertComparisonVersion(value.comparison_version);
+  assertString(value.comparison_id, "comparison_id");
+  assertString(value.pair_id, "pair_id");
+  assertString(value.task_id, "task_id");
+  assertNonnegativeSafeInteger(value.repeat_index, "repeat_index");
+  assertString(value.project_ref, "project_ref");
+  assertSha256Hex(value.source_sha256, "source_sha256");
+  assertSha256Hex(value.task_sha256, "task_sha256");
+  return deepFreeze(structuredClone(value));
+}
+
+export function validateComparisonV2ArmResult(value, options = {}) {
+  validateContractBase(
+    value,
+    COMPARISON_V2_ARM_RESULT_REQUIRED_FIELDS,
+    "ComparisonV2ArmResult",
+    options,
+  );
+  assertComparisonVersion(value.comparison_version);
+  const experiment = validateComparisonV2Experiment(value.experiment, options);
+  const task = validateComparisonV2Task(value.task, options);
+  if (task.comparison_id !== experiment.comparison_id) {
+    throw usageError("comparison task must bind the experiment comparison_id.", {
+      field: "task.comparison_id",
+    });
+  }
+  assertEnum(value.role, "role", COMPARISON_V2_ROLES);
+  assertString(value.name, "name");
+  assertSha256Hex(value.provider_sha256, "provider_sha256");
+  assertSha256Hex(value.policy_sha256, "policy_sha256");
+  assertSha256Hex(value.configuration_sha256, "configuration_sha256");
+  const descriptor = experiment[value.role];
+  for (const field of [
+    "name",
+    "provider_sha256",
+    "policy_sha256",
+    "configuration_sha256",
+  ]) {
+    if (value[field] !== descriptor[field]) {
+      throw usageError(`comparison arm ${field} must match its experiment descriptor.`, {
+        field,
+        role: value.role,
+      });
+    }
+  }
+  assertComparisonObservation(value.observation);
+  return deepFreeze(structuredClone(value));
+}
+
+export function validateComparisonV2PairResult(value, options = {}) {
+  validateContractBase(
+    value,
+    COMPARISON_V2_PAIR_RESULT_REQUIRED_FIELDS,
+    "ComparisonV2PairResult",
+    options,
+  );
+  assertComparisonVersion(value.comparison_version);
+  const experiment = validateComparisonV2Experiment(value.experiment, options);
+  const task = validateComparisonV2Task(value.task, options);
+  if (task.comparison_id !== experiment.comparison_id) {
+    throw usageError("pair task must bind the experiment comparison_id.", {
+      field: "task.comparison_id",
+    });
+  }
+  assertStringArray(value.order, "order", { allowEmpty: false });
+  if (
+    value.order.length !== 2 ||
+    !value.order.includes(experiment.control.name) ||
+    !value.order.includes(experiment.treatment.name)
+  ) {
+    throw usageError("comparison order must contain each arm name exactly once.", {
+      field: "order",
+    });
+  }
+  assertBoolean(value.protocol_valid, "protocol_valid");
+  assertStringArray(value.protocol_invalid_reasons, "protocol_invalid_reasons");
+  for (const reason of value.protocol_invalid_reasons) {
+    assertEnum(
+      reason,
+      "protocol_invalid_reasons",
+      COMPARISON_V2_PROTOCOL_INVALID_REASONS,
+    );
+  }
+  if (value.protocol_valid !== (value.protocol_invalid_reasons.length === 0)) {
+    throw usageError(
+      "protocol_valid must match whether protocol_invalid_reasons is empty.",
+    );
+  }
+
+  const control = validateComparisonV2ArmResult(value.control, options);
+  const treatment = validateComparisonV2ArmResult(value.treatment, options);
+  if (control.role !== "control" || treatment.role !== "treatment") {
+    throw usageError("comparison pair roles must be exactly control and treatment.");
+  }
+  for (const armResult of [control, treatment]) {
+    assertSameRecord(value.experiment, armResult.experiment, "experiment");
+    assertSameRecord(value.task, armResult.task, "task");
+  }
   return deepFreeze(structuredClone(value));
 }

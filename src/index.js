@@ -74,6 +74,24 @@ export {
   validateEvidenceReceipt,
 } from "./contracts/evidence-receipt.js";
 export {
+  ADAPTIVE_ROUTE_REASONS,
+  EXECUTION_POLICY_REQUIRED_FIELDS,
+  EXECUTION_POLICY_ROUTE_REQUIRED_FIELDS,
+  freezeExecutionPolicy,
+  validateExecutionPolicy,
+} from "./contracts/execution-policy.js";
+export {
+  ADAPTIVE_ATTEMPT_REQUIRED_FIELDS,
+  ADAPTIVE_ATTEMPT_STATUSES,
+  ADAPTIVE_COST_OBSERVATION_STATUSES,
+  ADAPTIVE_SESSION_REQUIRED_FIELDS,
+  ADAPTIVE_TELEMETRY_MISSING_REASONS,
+  ADAPTIVE_TIMING_COMPONENTS,
+  ADAPTIVE_VERIFICATION_STATUSES,
+  freezeAdaptiveSession,
+  validateAdaptiveSession,
+} from "./contracts/adaptive-session.js";
+export {
   canonicalJSONBytes,
   canonicalJSONLine,
   canonicalJSONLineBytes,
@@ -188,16 +206,34 @@ export {
   BENCHMARK_TASK_REQUIRED_FIELDS,
   BENCHMARK_TERMINAL_STATUSES,
   BENCHMARK_VERIFICATION_STATUSES,
+  COMPARISON_V2_ARM_RESULT_REQUIRED_FIELDS,
+  COMPARISON_V2_COST_OBSERVATION_STATUSES,
+  COMPARISON_V2_EXPERIMENT_REQUIRED_FIELDS,
+  COMPARISON_V2_MISSING_REASONS,
+  COMPARISON_V2_ORDER_ALGORITHM,
+  COMPARISON_V2_PAIR_RESULT_REQUIRED_FIELDS,
+  COMPARISON_V2_PROTOCOL_INVALID_REASONS,
+  COMPARISON_V2_ROLES,
+  COMPARISON_V2_TASK_REQUIRED_FIELDS,
+  COMPARISON_V2_VERSION,
   validateBenchmarkArmResult,
   validateBenchmarkExperiment,
   validateBenchmarkPairResult,
   validateBenchmarkTask,
+  validateComparisonV2ArmResult,
+  validateComparisonV2Experiment,
+  validateComparisonV2PairResult,
+  validateComparisonV2Task,
 } from "./benchmark/contracts.js";
 export {
   buildBenchmarkLedger,
+  buildComparisonV2Ledger,
   parseBenchmarkLedger,
+  parseComparisonV2Ledger,
   readBenchmarkLedger,
+  readComparisonV2Ledger,
   writeBenchmarkLedger,
+  writeComparisonV2Ledger,
 } from "./benchmark/ledger.js";
 export {
   pairedOrder,
@@ -207,6 +243,7 @@ export {
 } from "./benchmark/runner.js";
 export {
   summarizeBenchmarkPairs,
+  summarizeComparisonV2Pairs,
 } from "./benchmark/statistics.js";
 export {
   executeCliCommand,

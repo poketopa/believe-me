@@ -2,7 +2,10 @@ import { deepFreeze } from "../contracts/common.js";
 import { usageError } from "../contracts/errors.js";
 import { canonicalJSONBytes } from "../core/canonical-json.js";
 import { sha256Hex } from "../core/hash.js";
-import { validateBenchmarkPairResult } from "./contracts.js";
+import {
+  validateBenchmarkPairResult,
+  validateComparisonV2PairResult,
+} from "./contracts.js";
 
 const arms = Object.freeze(["direct_codex", "harness"]);
 const terminalStatuses = Object.freeze([
@@ -435,6 +438,263 @@ export function summarizeBenchmarkPairs(pairRecords, options = undefined) {
       total_tokens: totalTokens,
       wall_ms: wallMs,
       ...componentMetrics,
+    },
+  });
+}
+
+function comparisonV2Success(armResult, pair) {
+  return pair.protocol_valid &&
+    armResult.observation.terminal_status === "completed" &&
+    armResult.observation.verified_success
+    ? 1
+    : 0;
+}
+
+function comparisonV2PairedBinary(pairs, reader) {
+  let controlPositive = 0;
+  let treatmentPositive = 0;
+  let controlOnly = 0;
+  let treatmentOnly = 0;
+  let bothPositive = 0;
+  let bothNegative = 0;
+  for (const pair of pairs) {
+    const control = reader(pair.control, pair);
+    const treatment = reader(pair.treatment, pair);
+    controlPositive += control;
+    treatmentPositive += treatment;
+    if (control === 1 && treatment === 1) bothPositive += 1;
+    else if (control === 1) controlOnly += 1;
+    else if (treatment === 1) treatmentOnly += 1;
+    else bothNegative += 1;
+  }
+  const count = pairs.length;
+  return {
+    control: {
+      name: pairs[0]?.experiment.control.name ?? null,
+      positive_count: controlPositive,
+      rate: rate(controlPositive, count),
+    },
+    treatment: {
+      name: pairs[0]?.experiment.treatment.name ?? null,
+      positive_count: treatmentPositive,
+      rate: rate(treatmentPositive, count),
+    },
+    treatment_minus_control: rate(treatmentPositive - controlPositive, count),
+    discordant: {
+      control_only: controlOnly,
+      treatment_only: treatmentOnly,
+      both_positive: bothPositive,
+      both_negative: bothNegative,
+    },
+  };
+}
+
+function comparisonV2Telemetry(armResult, metric) {
+  const observation = armResult.observation;
+  if (metric === "total_tokens") {
+    return observation.usage === null
+      ? { value: null, reason: observation.usage_missing_reason }
+      : { value: observation.usage.total_tokens, reason: null };
+  }
+  if (metric === "cost") {
+    return observation.cost === null
+      ? { value: null, reason: observation.cost_missing_reason, unit: null }
+      : {
+          value: observation.cost.amount,
+          reason: null,
+          unit: observation.cost.currency,
+        };
+  }
+  return { value: observation[metric], reason: null };
+}
+
+function comparisonV2Continuous(pairs, metric) {
+  const differences = [];
+  const missing_by_role = { control: 0, treatment: 0 };
+  const missing_reasons = { control: {}, treatment: {} };
+  let missingPairCount = 0;
+  for (const pair of pairs) {
+    const control = comparisonV2Telemetry(pair.control, metric);
+    const treatment = comparisonV2Telemetry(pair.treatment, metric);
+    if (
+      metric === "cost" &&
+      control.value !== null &&
+      treatment.value !== null &&
+      control.unit !== treatment.unit
+    ) {
+      missingPairCount += 1;
+      missing_by_role.control += 1;
+      missing_by_role.treatment += 1;
+      incrementReason(missing_reasons.control, "currency_mismatch");
+      incrementReason(missing_reasons.treatment, "currency_mismatch");
+      continue;
+    }
+    if (control.value === null || treatment.value === null) {
+      missingPairCount += 1;
+      if (control.value === null) {
+        missing_by_role.control += 1;
+        incrementReason(missing_reasons.control, control.reason);
+      }
+      if (treatment.value === null) {
+        missing_by_role.treatment += 1;
+        incrementReason(missing_reasons.treatment, treatment.reason);
+      }
+      continue;
+    }
+    differences.push(treatment.value - control.value);
+  }
+  return {
+    paired_complete_count: differences.length,
+    missing_pair_count: missingPairCount,
+    missing_by_role,
+    missing_reasons,
+    median_treatment_minus_control: median(differences),
+  };
+}
+
+function comparisonV2CostArm(pairs, role) {
+  let totalObservedAmount = 0;
+  let observedCount = 0;
+  let missingCount = 0;
+  let verifiedSuccessCount = 0;
+  const missingReasons = {};
+  const currencies = new Set();
+  const pricingSources = new Set();
+  const observationStatuses = {};
+  for (const pair of pairs) {
+    const arm = pair[role];
+    verifiedSuccessCount += comparisonV2Success(arm, pair);
+    if (arm.observation.cost === null) {
+      missingCount += 1;
+      incrementReason(missingReasons, arm.observation.cost_missing_reason);
+      continue;
+    }
+    const cost = arm.observation.cost;
+    totalObservedAmount += cost.amount;
+    observedCount += 1;
+    currencies.add(cost.currency);
+    pricingSources.add(cost.pricing_source);
+    incrementReason(observationStatuses, cost.observation_status);
+  }
+  return {
+    observed_count: observedCount,
+    missing_count: missingCount,
+    missing_reasons: missingReasons,
+    total_observed_amount: currencies.size <= 1 ? totalObservedAmount : null,
+    currencies: [...currencies].toSorted(),
+    pricing_sources: [...pricingSources].toSorted(),
+    observation_status_counts: observationStatuses,
+    verified_success_count: verifiedSuccessCount,
+    cost_per_verified_success:
+      currencies.size <= 1 && missingCount === 0 && verifiedSuccessCount > 0
+        ? totalObservedAmount / verifiedSuccessCount
+        : null,
+  };
+}
+
+function assertComparableComparisonV2Pairs(pairs) {
+  const experimentHashes = new Set(pairs.map((pair) =>
+    sha256Hex(canonicalJSONBytes(pair.experiment))
+  ));
+  if (experimentHashes.size > 1) {
+    throw usageError(
+      "comparison-v2 summary cannot mix provider, policy, corpus, verifier, or schema definitions.",
+    );
+  }
+  const pairIds = new Set();
+  for (const pair of pairs) {
+    if (pairIds.has(pair.task.pair_id)) {
+      throw usageError("comparison-v2 summary contains a duplicate pair_id.", {
+        pair_id: pair.task.pair_id,
+      });
+    }
+    pairIds.add(pair.task.pair_id);
+  }
+}
+
+export function summarizeComparisonV2Pairs(pairRecords, options = undefined) {
+  if (!Array.isArray(pairRecords)) {
+    throw usageError("comparison-v2 pairs must be an array.", { field: "pairs" });
+  }
+  const parsedOptions = assertOptions(options);
+  const seed = safeIntegerOption(parsedOptions.seed, "seed", 1);
+  const bootstrapReplicates = safeIntegerOption(
+    parsedOptions.bootstrap_replicates,
+    "bootstrap_replicates",
+    10_000,
+  );
+  const pairs = pairRecords.map((pair) => validateComparisonV2PairResult(pair));
+  assertComparableComparisonV2Pairs(pairs);
+
+  const success = comparisonV2PairedBinary(pairs, comparisonV2Success);
+  success.mcnemar = {
+    control_only: success.discordant.control_only,
+    treatment_only: success.discordant.treatment_only,
+    p_value: exactTwoSidedBinomialPValue(
+      success.discordant.control_only,
+      success.discordant.treatment_only,
+    ),
+  };
+  success.ci95_treatment_minus_control = bootstrapCi(
+    pairs,
+    bootstrapReplicates,
+    seed,
+    (sampled) =>
+      comparisonV2PairedBinary(sampled, comparisonV2Success)
+        .treatment_minus_control,
+  );
+
+  const unsafe = comparisonV2PairedBinary(
+    pairs,
+    (arm) => arm.observation.unsafe_or_out_of_scope ? 1 : 0,
+  );
+  unsafe.ci95_treatment_minus_control = bootstrapCi(
+    pairs,
+    bootstrapReplicates,
+    seed + 1,
+    (sampled) => comparisonV2PairedBinary(
+      sampled,
+      (arm) => arm.observation.unsafe_or_out_of_scope ? 1 : 0,
+    ).treatment_minus_control,
+  );
+
+  const continuous = {};
+  for (const [offset, metric] of [
+    [2, "total_tokens"],
+    [3, "wall_ms"],
+    [4, "attempt_count"],
+    [5, "cost"],
+  ]) {
+    const summary = comparisonV2Continuous(pairs, metric);
+    summary.ci95_median_treatment_minus_control = bootstrapCi(
+      pairs,
+      bootstrapReplicates,
+      seed + offset,
+      (sampled) =>
+        comparisonV2Continuous(sampled, metric)
+          .median_treatment_minus_control,
+    );
+    continuous[metric] = summary;
+  }
+
+  return deepFreeze({
+    schema_version: { major: 1 },
+    comparison_version: 2,
+    comparison_id: pairs[0]?.experiment.comparison_id ?? null,
+    scheduled_pair_count: pairs.length,
+    protocol_invalid_pair_count: pairs.filter((pair) => !pair.protocol_valid).length,
+    evidence_label: evidenceLabel(pairs),
+    bootstrap: {
+      seed,
+      replicates: bootstrapReplicates,
+      cluster: "task_id",
+    },
+    end_to_end_success: success,
+    safety: { unsafe_or_out_of_scope: unsafe },
+    continuous,
+    cost: {
+      control: comparisonV2CostArm(pairs, "control"),
+      treatment: comparisonV2CostArm(pairs, "treatment"),
     },
   });
 }

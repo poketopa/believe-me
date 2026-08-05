@@ -95,14 +95,17 @@ test("npm tarball installs with a working executable", async () => {
     [
       "--input-type=module",
       "-e",
-      "import { summarizeBenchmarkPairs, runPairedBenchmark } from '@poketopa/believe-me'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark);",
+      "import { summarizeBenchmarkPairs, runPairedBenchmark, validateExecutionPolicy, validateAdaptiveSession, summarizeComparisonV2Pairs } from '@poketopa/believe-me'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark, typeof validateExecutionPolicy, typeof validateAdaptiveSession, typeof summarizeComparisonV2Pairs);",
     ],
     { cwd: installRoot, env: process.env },
   );
   assert.equal(benchmarkApi.signal, null);
   assert.equal(benchmarkApi.code, 0, benchmarkApi.stderr);
   assert.equal(benchmarkApi.stderr, "");
-  assert.equal(benchmarkApi.stdout, "function function\n");
+  assert.equal(
+    benchmarkApi.stdout,
+    "function function function function function\n",
+  );
 
   const fixtureRoot = resolve("test/fixtures/node-reservation-policy");
   const projectRoot = join(installRoot, "node-reservation-policy");
