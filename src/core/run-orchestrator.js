@@ -1,0 +1,746 @@
+import {
+  lstat,
+  mkdir,
+  rm,
+} from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  HarnessContractError,
+  infraError,
+  notFound,
+  safetyRefusal,
+  usageError,
+  verificationFailed,
+} from "../contracts/errors.js";
+import { validateRunSpec } from "../contracts/run-spec.js";
+import { validateSkillManifest } from "../contracts/skill-manifest.js";
+import {
+  validateDeterministicExecutorInput,
+  validateDeterministicExecutorResult,
+} from "../contracts/deterministic-executor.js";
+import { runSpringVerifier } from "../adapters/spring-verifier.js";
+import { canonicalJSONLineBytes } from "./canonical-json.js";
+import { writeEvidenceBundle, readEvidenceBundle, evidencePaths } from "./evidence.js";
+import { sha256CanonicalJSONLine, sha256Hex } from "./hash.js";
+import {
+  advanceStoredRunState,
+  readRunState,
+  writeRunState,
+} from "./state-store.js";
+import { createProjectSnapshot, readRegularFileNoFollow } from "./snapshot.js";
+import { compileWorkflowPlan } from "./workflow-compiler.js";
+import {
+  frozenRunInputPaths,
+  readFrozenRunInputs,
+  runArtifactRoot,
+  runDirectory,
+  runWorkspacePath,
+  writeFailedRunEvidence,
+  writeFrozenRunInputs,
+} from "./run-artifacts.js";
+import {
+  applyDeterministicChanges,
+  assertDeterministicResultMatchesWorkspace,
+  createIsolatedWorkspace,
+} from "./workspace.js";
+
+const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function validateRunId(runId) {
+  if (typeof runId !== "string" || !RUN_ID_PATTERN.test(runId)) {
+    throw usageError("runId must be a path-safe identifier.", {
+      field: "runId",
+    });
+  }
+  return runId;
+}
+
+function resolveFromProject(projectRoot, path) {
+  return isAbsolute(path) ? resolve(path) : resolve(projectRoot, path);
+}
+
+async function canonicalProjectRoot(path) {
+  const absolute = resolve(path);
+  const stats = await lstat(absolute).catch((error) => {
+    if (error.code === "ENOENT") {
+      throw notFound("Project root does not exist.", { path: absolute });
+    }
+    throw infraError("Project root could not be inspected.", {
+      path: absolute,
+      cause_code: error.code,
+    });
+  });
+  if (stats.isSymbolicLink()) {
+    throw safetyRefusal("Project root must not be a symlink.", { path: absolute });
+  }
+  if (!stats.isDirectory()) {
+    throw usageError("Project root must be a directory.", { path: absolute });
+  }
+  return absolute;
+}
+
+async function canonicalStateDir(projectRoot, stateDirPath) {
+  const requested = resolveFromProject(projectRoot, stateDirPath);
+  const relativePath = relative(projectRoot, requested);
+  if (requested === projectRoot) {
+    throw safetyRefusal("State directory must not be the project root.");
+  }
+  const insideProject =
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${sep}`);
+  if (insideProject && relativePath.split(sep)[0] !== ".harness") {
+    throw safetyRefusal(
+      "A state directory inside the project must stay under '.harness'.",
+      { state_dir: requested },
+    );
+  }
+
+  if (insideProject) {
+    let current = projectRoot;
+    for (const segment of relativePath.split(sep)) {
+      current = join(current, segment);
+      await ensureRealDirectory(current, { create: true, label: "State path" });
+    }
+  } else {
+    await mkdir(requested, { recursive: true, mode: 0o700 }).catch((error) => {
+      throw infraError("State directory could not be created.", {
+        path: requested,
+        cause_code: error.code,
+      });
+    });
+    await ensureRealDirectory(requested, { create: false, label: "State directory" });
+  }
+  return requested;
+}
+
+async function ensureRealDirectory(path, { create, label }) {
+  let stats = await lstat(path).catch((error) => {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (stats === null && create) {
+    try {
+      await mkdir(path, { recursive: false, mode: 0o700 });
+    } catch (error) {
+      if (error.code !== "EEXIST") {
+        throw infraError(`${label} could not be created.`, {
+          path,
+          cause_code: error.code,
+        });
+      }
+    }
+    stats = await lstat(path);
+  }
+  if (stats === null) {
+    throw notFound(`${label} does not exist.`, { path });
+  }
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw safetyRefusal(`${label} must be a real directory.`, { path });
+  }
+  return path;
+}
+
+async function readJsonInput(path, label) {
+  const absolute = resolve(path);
+  let bytes;
+  try {
+    ({ bytes } = await readRegularFileNoFollow(absolute, absolute));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      throw notFound(`${label} does not exist.`, { path: absolute });
+    }
+    if (error instanceof HarnessContractError) {
+      throw error;
+    }
+    throw infraError(`${label} could not be read.`, {
+      path: absolute,
+      cause_code: error.code,
+    });
+  }
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw usageError(`${label} must contain valid JSON.`, { path: absolute });
+  }
+}
+
+function canonicalizeRunSpec(spec, projectRoot, stateDir) {
+  return validateRunSpec({
+    ...spec,
+    project_path: projectRoot,
+    state_dir: stateDir,
+    skill_manifest_path: resolveFromProject(projectRoot, spec.skill_manifest_path),
+    input_path: resolveFromProject(projectRoot, spec.input_path),
+  });
+}
+
+async function createRunDirectory(stateDir, runId) {
+  const runsRoot = join(stateDir, "runs");
+  await ensureRealDirectory(runsRoot, {
+    create: true,
+    label: "Runs directory",
+  });
+  const directory = runDirectory(stateDir, runId);
+  try {
+    await mkdir(directory, { recursive: false, mode: 0o700 });
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      throw safetyRefusal("Run id already exists; use resume instead.", {
+        run_id: runId,
+      });
+    }
+    throw infraError("Run directory could not be created.", {
+      run_id: runId,
+      cause_code: error.code,
+    });
+  }
+  await ensureRealDirectory(directory, {
+    create: false,
+    label: "Run directory",
+  });
+  return directory;
+}
+
+async function assertExistingRunDirectory(stateDir, runId) {
+  const paths = [stateDir, join(stateDir, "runs"), runDirectory(stateDir, runId)];
+  for (const path of paths) {
+    const stats = await lstat(path).catch((error) => {
+      if (error.code === "ENOENT") {
+        throw notFound("Run directory does not exist.", { run_id: runId });
+      }
+      throw error;
+    });
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw safetyRefusal("Run path must contain only real directories.", {
+        path,
+      });
+    }
+  }
+}
+
+function errorDetails(error) {
+  if (error?.details === null || typeof error?.details !== "object") {
+    return {};
+  }
+  try {
+    return JSON.parse(JSON.stringify(error.details));
+  } catch {
+    return {};
+  }
+}
+
+function failureArtifact(runId, phase, error, recordedAt) {
+  return {
+    schema_version: { major: 1 },
+    run_id: runId,
+    phase,
+    code: typeof error?.code === "string" ? error.code : "infra_error",
+    message: typeof error?.message === "string" ? error.message : "Run failed.",
+    details: errorDetails(error),
+    recorded_at: recordedAt,
+  };
+}
+
+function failedVerificationArtifact(error) {
+  if (error?.details?.result && typeof error.details.result === "object") {
+    return error.details.result;
+  }
+  return {
+    schema_version: { major: 1 },
+    adapter_id: "injected-verifier",
+    status: "failed",
+    error_code: typeof error?.code === "string" ? error.code : "infra_error",
+  };
+}
+
+function normalizePhaseError(error, phase) {
+  if (error instanceof HarnessContractError) {
+    return error;
+  }
+  return infraError(`Run ${phase} failed unexpectedly.`, {
+    cause_name: error?.name ?? "Error",
+    cause_message: error?.message ?? String(error),
+  });
+}
+
+async function rejectFailedRun(context, phase, error, result) {
+  const artifactRoot = context.state.artifact_root;
+  const failure = failureArtifact(
+    context.state.run_id,
+    phase,
+    error,
+    context.recordedAt(),
+  );
+  try {
+    await writeFailedRunEvidence({
+      artifactRoot,
+      result,
+      verification: phase === "verification"
+        ? failedVerificationArtifact(error)
+        : undefined,
+      failure,
+    });
+  } catch (persistenceError) {
+    if (persistenceError?.code !== "EEXIST") {
+      error.failure_persistence_error = persistenceError;
+    }
+  }
+
+  try {
+    const currentSnapshot = await createProjectSnapshot(
+      context.inputs.runSpec.value.project_path,
+    );
+    if (currentSnapshot.sha256 === context.state.source_snapshot_sha256) {
+      const current = await readRunState(context.stateDir, context.state.run_id);
+      if (["draft", "planned", "executing", "verified"].includes(
+        current.state.lifecycle_state,
+      )) {
+        await advanceStoredRunState(
+          context.stateDir,
+          context.state.run_id,
+          { lifecycle_state: "rejected" },
+          { observed: { source_snapshot_sha256: currentSnapshot.sha256 } },
+        );
+      }
+    }
+  } catch {
+    // The original error remains authoritative; persisted state is left for audit.
+  }
+}
+
+function assertFrozenBindings(state, inputs) {
+  const { manifest, runSpec, sourceSnapshot, workflowPlan, executorInput } = inputs;
+  const plan = workflowPlan.value;
+  const input = executorInput.value;
+  const checks = [
+    ["manifest_sha256", state.manifest_sha256, manifest.sha256],
+    ["workflow_plan_sha256", state.workflow_plan_sha256, workflowPlan.sha256],
+    ["source_snapshot_sha256", state.source_snapshot_sha256, sourceSnapshot.value.sha256],
+    ["plan.run_id", state.run_id, plan.run_id],
+    ["plan.manifest_sha256", state.manifest_sha256, plan.manifest_sha256],
+    ["plan.source_snapshot_sha256", state.source_snapshot_sha256, plan.source_snapshot_sha256],
+    ["plan.executor_kind", state.executor_kind, plan.executor_kind],
+    ["plan.input_sha256", plan.expected_result.input_sha256, executorInput.sha256],
+    ["plan.run_spec_sha256", plan.expected_result.run_spec_sha256, runSpec.sha256],
+    ["executor_input.run_id", state.run_id, input.run_id],
+    ["executor_input.manifest_sha256", state.manifest_sha256, input.manifest_sha256],
+    ["executor_input.source_snapshot_sha256", state.source_snapshot_sha256, input.source_snapshot_sha256],
+    ["executor_input.executor_kind", state.executor_kind, input.executor_kind],
+  ];
+  for (const [field, expected, actual] of checks) {
+    if (expected !== actual) {
+      throw safetyRefusal(`Frozen run binding '${field}' does not match.`, {
+        field,
+        expected,
+        actual,
+      });
+    }
+  }
+}
+
+function assertArtifactRoot(stateDir, runId, artifactRoot) {
+  const expected = resolve(runArtifactRoot(stateDir, runId));
+  if (resolve(artifactRoot) !== expected) {
+    throw safetyRefusal("Run artifact root does not match the configured state directory.", {
+      expected,
+      actual: artifactRoot,
+    });
+  }
+}
+
+function assertEvidenceMatchesState(state, evidence) {
+  if (evidence.receipt_sha256 !== state.receipt_sha256 && state.receipt_sha256) {
+    throw safetyRefusal("Evidence receipt hash does not match run state.");
+  }
+  for (const field of [
+    "run_id",
+    "manifest_sha256",
+    "workflow_plan_sha256",
+    "source_snapshot_sha256",
+  ]) {
+    if (evidence.receipt[field] !== state[field]) {
+      throw safetyRefusal(`Evidence receipt field '${field}' does not match run state.`, {
+        field,
+      });
+    }
+  }
+  const result = validateDeterministicExecutorResult(evidence.result, {
+    persisted: true,
+  });
+  if (result.run_id !== state.run_id) {
+    throw safetyRefusal("Evidence result run id does not match run state.");
+  }
+  if (evidence.verification?.status !== "passed") {
+    throw safetyRefusal("Evidence verification is not a passed result.");
+  }
+}
+
+async function inspectExistingEvidence(artifactRoot) {
+  const paths = evidencePaths(artifactRoot);
+  const entries = await Promise.all(
+    Object.values(paths).map(async (path) => {
+      try {
+        await lstat(path);
+        return true;
+      } catch (error) {
+        if (error.code === "ENOENT") {
+          return false;
+        }
+        throw error;
+      }
+    }),
+  );
+  if (entries.every((entry) => entry === false)) {
+    return null;
+  }
+  if (entries.some((entry) => entry === false)) {
+    throw safetyRefusal("Run evidence bundle is incomplete after interruption.");
+  }
+  return readEvidenceBundle(artifactRoot);
+}
+
+async function loadResumeContext(options) {
+  const runId = validateRunId(options.runId);
+  const suppliedStateDir = resolve(options.stateDir);
+  await assertExistingRunDirectory(suppliedStateDir, runId);
+  const { state } = await readRunState(suppliedStateDir, runId).catch((error) => {
+    if (error.code === "ENOENT") {
+      throw notFound("Run state does not exist.", { run_id: runId });
+    }
+    throw error;
+  });
+  assertArtifactRoot(suppliedStateDir, runId, state.artifact_root);
+  const inputs = await readFrozenRunInputs(suppliedStateDir, runId);
+  assertFrozenBindings(state, inputs);
+
+  const projectRoot = await canonicalProjectRoot(inputs.runSpec.value.project_path);
+  const canonicalState = await canonicalStateDir(projectRoot, inputs.runSpec.value.state_dir);
+  if (canonicalState !== suppliedStateDir || projectRoot !== inputs.runSpec.value.project_path) {
+    throw safetyRefusal("Persisted run paths no longer resolve to their frozen locations.");
+  }
+
+  const currentSnapshot = await createProjectSnapshot(projectRoot);
+  if (currentSnapshot.sha256 !== state.source_snapshot_sha256) {
+    throw safetyRefusal("Source snapshot changed before run resume.", {
+      expected_sha256: state.source_snapshot_sha256,
+      actual_sha256: currentSnapshot.sha256,
+    });
+  }
+
+  return {
+    stateDir: suppliedStateDir,
+    state,
+    inputs,
+    currentSnapshot,
+    recordedAt: options.recordedAt ?? (() => new Date().toISOString()),
+  };
+}
+
+async function finishFromExistingEvidence(context, evidence) {
+  if (!context.state.receipt_sha256) {
+    throw safetyRefusal(
+      "Existing evidence is not bound by the persisted run state.",
+      { lifecycle_state: context.state.lifecycle_state },
+    );
+  }
+  assertEvidenceMatchesState(context.state, evidence);
+  let state = context.state;
+  const observed = {
+    source_snapshot_sha256: state.source_snapshot_sha256,
+    receipt_sha256: state.receipt_sha256,
+  };
+  if (state.lifecycle_state === "executing") {
+    ({ state } = await advanceStoredRunState(
+      context.stateDir,
+      state.run_id,
+      { lifecycle_state: "verified" },
+      { observed },
+    ));
+  }
+  if (state.lifecycle_state === "verified") {
+    ({ state } = await advanceStoredRunState(
+      context.stateDir,
+      state.run_id,
+      {
+        lifecycle_state: "receipted",
+        receipt_sha256: evidence.receipt_sha256,
+      },
+      { observed },
+    ));
+  }
+  if (state.lifecycle_state !== "receipted") {
+    throw safetyRefusal("Existing evidence cannot finalize the current lifecycle state.", {
+      lifecycle_state: state.lifecycle_state,
+    });
+  }
+  return Object.freeze({ state, evidence, workspace_root: runWorkspacePath(
+    context.stateDir,
+    state.run_id,
+  ) });
+}
+
+async function executeRun(context, options) {
+  await assertExistingRunDirectory(context.stateDir, context.state.run_id);
+  let state = context.state;
+  if (state.lifecycle_state === "planned") {
+    ({ state } = await advanceStoredRunState(
+      context.stateDir,
+      state.run_id,
+      { lifecycle_state: "executing" },
+      { observed: { source_snapshot_sha256: state.source_snapshot_sha256 } },
+    ));
+    context.state = state;
+    await options.onCheckpoint?.({ state });
+  }
+  if (state.lifecycle_state !== "executing") {
+    throw safetyRefusal("Run execution requires planned or executing state.", {
+      lifecycle_state: state.lifecycle_state,
+    });
+  }
+
+  const existingEvidence = await inspectExistingEvidence(state.artifact_root);
+  if (existingEvidence !== null) {
+    return finishFromExistingEvidence(context, existingEvidence);
+  }
+
+  const workspaceRoot = runWorkspacePath(context.stateDir, state.run_id);
+  await rm(workspaceRoot, { recursive: true, force: true });
+  await createIsolatedWorkspace({
+    projectRoot: context.inputs.runSpec.value.project_path,
+    workspaceRoot,
+    expectedSnapshotSha256: state.source_snapshot_sha256,
+  });
+
+  const executor = options.executor ?? (async ({ workspaceRoot: root, input }) =>
+    applyDeterministicChanges({
+      workspaceRoot: root,
+      executorInput: input,
+      validateResult: validateDeterministicExecutorResult,
+    }));
+
+  let result;
+  try {
+    result = validateDeterministicExecutorResult(await executor({
+      workspaceRoot,
+      input: context.inputs.executorInput.value,
+      plan: context.inputs.workflowPlan.value,
+    }));
+    if (result.run_id !== state.run_id) {
+      throw safetyRefusal("Executor result run id does not match run state.");
+    }
+    await assertDeterministicResultMatchesWorkspace({
+      workspaceRoot,
+      result,
+      sourceSnapshot: context.inputs.sourceSnapshot.value,
+    });
+  } catch (caught) {
+    const error = normalizePhaseError(caught, "execution");
+    await rejectFailedRun(context, "execution", error, result);
+    throw error;
+  }
+
+  const afterExecution = await createProjectSnapshot(
+    context.inputs.runSpec.value.project_path,
+  );
+  if (afterExecution.sha256 !== state.source_snapshot_sha256) {
+    const error = safetyRefusal("Source project changed during isolated execution.");
+    await rejectFailedRun(context, "execution", error, result);
+    throw error;
+  }
+
+  const verifier = options.verifier ?? (async ({ workspaceRoot: root }) =>
+    runSpringVerifier({ fixtureRoot: root }));
+  let verification;
+  try {
+    verification = await verifier({
+      workspaceRoot,
+      result,
+      plan: context.inputs.workflowPlan.value,
+    });
+    if (verification === true) {
+      verification = {
+        schema_version: { major: 1 },
+        adapter_id: "injected-verifier",
+        status: "passed",
+      };
+    }
+    if (
+      verification === null ||
+      typeof verification !== "object" ||
+      verification.status !== "passed"
+    ) {
+      throw verificationFailed("Verifier did not return a passed result.", {
+        verification,
+      });
+    }
+    await assertDeterministicResultMatchesWorkspace({
+      workspaceRoot,
+      result,
+      sourceSnapshot: context.inputs.sourceSnapshot.value,
+    });
+  } catch (caught) {
+    const error = normalizePhaseError(caught, "verification");
+    await rejectFailedRun(context, "verification", error, result);
+    throw error;
+  }
+
+  const afterVerification = await createProjectSnapshot(
+    context.inputs.runSpec.value.project_path,
+  );
+  if (afterVerification.sha256 !== state.source_snapshot_sha256) {
+    const error = safetyRefusal("Source project changed during isolated verification.");
+    await rejectFailedRun(context, "verification", error, result);
+    throw error;
+  }
+
+  const bundle = await writeEvidenceBundle({
+    artifactRoot: state.artifact_root,
+    runState: state,
+    verification,
+    result,
+    issuedAt: options.issuedAt,
+  });
+
+  ({ state } = await advanceStoredRunState(
+    context.stateDir,
+    state.run_id,
+    {
+      lifecycle_state: "verified",
+      receipt_sha256: bundle.receipt_sha256,
+    },
+    { observed: { source_snapshot_sha256: state.source_snapshot_sha256 } },
+  ));
+  context.state = state;
+  await options.onCheckpoint?.({ state, bundle });
+
+  const evidence = await readEvidenceBundle(state.artifact_root);
+  assertEvidenceMatchesState(state, evidence);
+  return finishFromExistingEvidence(context, evidence);
+}
+
+export async function runDeterministicHarness(options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw usageError("Run options must be an object.");
+  }
+  const runId = validateRunId(options.runId);
+  const rawSpec = validateRunSpec(options.runSpec);
+  if (rawSpec.executor_kind !== "deterministic") {
+    throw usageError("Milestone 1 run orchestration requires deterministic executor.");
+  }
+
+  const projectRoot = await canonicalProjectRoot(rawSpec.project_path);
+  const stateDir = await canonicalStateDir(projectRoot, rawSpec.state_dir);
+  const runSpec = canonicalizeRunSpec(rawSpec, projectRoot, stateDir);
+  const manifest = validateSkillManifest(await readJsonInput(
+    runSpec.skill_manifest_path,
+    "Skill manifest",
+  ));
+  const rawInput = await readJsonInput(runSpec.input_path, "Executor input");
+  if (rawInput === null || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    throw usageError("Executor input must be an object.");
+  }
+
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const manifestSha256 = sha256CanonicalJSONLine(manifest);
+  const executorInput = validateDeterministicExecutorInput({
+    schema_version: { major: 1 },
+    run_id: runId,
+    manifest_sha256: manifestSha256,
+    source_snapshot_sha256: sourceSnapshot.sha256,
+    executor_kind: "deterministic",
+    input: rawInput,
+  });
+  validateDeterministicExecutorResult({
+    schema_version: { major: 1 },
+    run_id: runId,
+    executor_kind: "deterministic",
+    status: "completed",
+    changes: rawInput.changes,
+  });
+
+  const runSpecSha256 = sha256Hex(canonicalJSONLineBytes(runSpec));
+  const inputSha256 = sha256Hex(canonicalJSONLineBytes(executorInput));
+  const workflowPlan = compileWorkflowPlan({
+    skillManifest: manifest,
+    runSpec,
+    sourceSnapshot,
+    inputSha256,
+    runSpecSha256,
+    runId,
+  });
+  const workflowPlanSha256 = sha256CanonicalJSONLine(workflowPlan);
+  if (workflowPlan.manifest_sha256 !== manifestSha256) {
+    throw safetyRefusal("Compiled workflow plan manifest binding is inconsistent.");
+  }
+
+  await createRunDirectory(stateDir, runId);
+  await writeFrozenRunInputs({
+    stateDir,
+    runId,
+    manifest,
+    runSpec,
+    sourceSnapshot,
+    workflowPlan,
+    executorInput,
+  });
+
+  const artifactRoot = runArtifactRoot(stateDir, runId);
+  await mkdir(artifactRoot, { recursive: false, mode: 0o700 });
+  const initial = await writeRunState(stateDir, {
+    schema_version: { major: 1 },
+    run_id: runId,
+    lifecycle_state: "draft",
+    manifest_sha256: manifestSha256,
+    workflow_plan_sha256: workflowPlanSha256,
+    source_snapshot_sha256: sourceSnapshot.sha256,
+    executor_kind: "deterministic",
+    artifact_root: artifactRoot,
+  });
+  const planned = await advanceStoredRunState(
+    stateDir,
+    runId,
+    { lifecycle_state: "planned" },
+    { observed: { source_snapshot_sha256: sourceSnapshot.sha256 } },
+  );
+
+  return executeRun({
+    stateDir,
+    state: planned.state,
+    inputs: await readFrozenRunInputs(stateDir, runId),
+    currentSnapshot: sourceSnapshot,
+    recordedAt: options.recordedAt ?? (() => new Date().toISOString()),
+  }, options);
+}
+
+export async function resumeDeterministicHarness(options = {}) {
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw usageError("Resume options must be an object.");
+  }
+  const context = await loadResumeContext(options);
+  if (context.state.lifecycle_state === "receipted") {
+    const evidence = await readEvidenceBundle(context.state.artifact_root);
+    assertEvidenceMatchesState(context.state, evidence);
+    return Object.freeze({
+      state: context.state,
+      evidence,
+      workspace_root: runWorkspacePath(context.stateDir, context.state.run_id),
+    });
+  }
+  if (context.state.lifecycle_state === "verified") {
+    const evidence = await readEvidenceBundle(context.state.artifact_root);
+    return finishFromExistingEvidence(context, evidence);
+  }
+  return executeRun(context, options);
+}
+
+export function deterministicRunDebugPaths(stateDir, runId) {
+  return Object.freeze({
+    run_root: runDirectory(stateDir, runId),
+    artifact_root: runArtifactRoot(stateDir, runId),
+    workspace_root: runWorkspacePath(stateDir, runId),
+    inputs: frozenRunInputPaths(stateDir, runId),
+  });
+}

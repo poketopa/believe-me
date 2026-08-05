@@ -37,11 +37,19 @@ The first CLI surface will be `init`, `run`, `status`, `receipt`, and `apply`.
 
 ## Current proof
 
-The repository now includes the deterministic contract/evidence/apply kernel and
-the first real verifier adapter. The canonical Roomescape Spring fixture proves
-the strict owner cancellation boundary, manager exemption, unchanged not-found
-behavior, first-waiting promotion, transactional rollback, and PostgreSQL row
-preservation.
+The repository now includes the deterministic run orchestrator, the
+contract/evidence/apply kernel, and the first real verifier adapter. A run
+freezes its manifest, run spec, source snapshot, workflow plan, and executor
+input before creating an isolated workspace. Only a non-empty candidate that
+passes verification can reach `receipted`; executor and verifier failures keep
+typed evidence while leaving the source project unchanged.
+
+The canonical Roomescape Spring fixture proves the strict owner cancellation
+boundary, manager exemption, unchanged not-found behavior, first-waiting
+promotion, transactional rollback, and PostgreSQL row preservation. Its
+deterministic baseline-to-candidate run now reaches `receipted` without manual
+state editing, and the resulting change set is directly compatible with the
+atomic apply contract exercised by the core tests.
 
 The fixture is verified through its pinned Gradle wrapper with a direct argv
 spawn (`shell: false`). Gradle distribution and dependency versions are locked;
@@ -56,6 +64,10 @@ Apply locks are immutable owner-token files. If an `apply.recovery.lock.jsonl`
 file remains after an interrupted recovery attempt, the harness preserves it as
 evidence and refuses further apply attempts until a manual investigation removes
 or archives that recovery lock.
+
+Interrupted deterministic runs resume only after revalidating the frozen input,
+plan, manifest, source-tree, and evidence hashes. A verified run with a complete
+receipt can finish its lifecycle without executing the candidate again.
 
 ```bash
 npm ci

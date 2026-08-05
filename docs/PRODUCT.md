@@ -31,6 +31,15 @@ real AI provider is admitted:
 7. refuse stale source;
 8. apply atomically after explicit approval.
 
+Steps 1-7 are now implemented for the deterministic executor. The integration
+proof starts from an intentionally incorrect Roomescape deadline boundary,
+restores the candidate in an isolated workspace, runs the fixture-owned Gradle
+verifier, and produces a receipt-bound non-empty change set. The original
+baseline remains unchanged until the separate approval/apply operation.
+
+The public JSONL CLI and Codex executor remain separate follow-up milestones;
+they must reuse these contracts rather than changing the deterministic proof.
+
 ## Core contracts
 
 - `SkillManifest`

@@ -5,9 +5,12 @@ export const product = Object.freeze({
 
 export {
   HarnessContractError,
+  infraError,
+  notFound,
   persistedSchemaUnsupported,
   safetyRefusal,
   usageError,
+  verificationFailed,
 } from "./contracts/errors.js";
 export {
   SUPPORTED_SCHEMA_MAJOR,
@@ -33,6 +36,14 @@ export {
   freezeRunSpec,
   validateRunSpec,
 } from "./contracts/run-spec.js";
+export {
+  DETERMINISTIC_EXECUTOR_INPUT_REQUIRED_FIELDS,
+  DETERMINISTIC_EXECUTOR_RESULT_REQUIRED_FIELDS,
+  freezeDeterministicExecutorInput,
+  freezeDeterministicExecutorResult,
+  validateDeterministicExecutorInput,
+  validateDeterministicExecutorResult,
+} from "./contracts/deterministic-executor.js";
 export {
   LIFECYCLE_STATES,
   RUN_STATE_IMMUTABLE_FIELDS,
@@ -79,7 +90,32 @@ export {
   createProjectSnapshot,
   isExcludedRelativePath,
   normalizeRelativePath,
+  readRegularFileNoFollow,
 } from "./core/snapshot.js";
+export {
+  WORKFLOW_STEP_IDS,
+  compileWorkflowPlan,
+} from "./core/workflow-compiler.js";
+export {
+  applyDeterministicChanges,
+  assertDeterministicResultMatchesWorkspace,
+  createIsolatedWorkspace,
+} from "./core/workspace.js";
+export {
+  deterministicRunDebugPaths,
+  resumeDeterministicHarness,
+  runDeterministicHarness,
+} from "./core/run-orchestrator.js";
+export {
+  frozenRunInputPaths,
+  readFrozenRunInputs,
+  runArtifactRoot,
+  runDirectory,
+  runWorkspacePath,
+  writeFailedRunEvidence,
+  writeFrozenRunInputs,
+  writeRunFailure,
+} from "./core/run-artifacts.js";
 export {
   evidencePaths,
   readEvidenceBundle,

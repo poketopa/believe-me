@@ -24,3 +24,15 @@ export function persistedSchemaUnsupported(message, details = {}) {
 export function safetyRefusal(message, details = {}) {
   return new HarnessContractError("safety_refusal", message, details, 3);
 }
+
+export function notFound(message, details = {}) {
+  return new HarnessContractError("not_found", message, details, 4);
+}
+
+export function verificationFailed(message, details = {}) {
+  return new HarnessContractError("verification_failed", message, details, 5);
+}
+
+export function infraError(message, details = {}) {
+  return new HarnessContractError("infra_error", message, details, 10);
+}

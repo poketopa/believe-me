@@ -1,10 +1,11 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { validateEvidenceReceipt } from "../contracts/evidence-receipt.js";
 import { safetyRefusal } from "../contracts/errors.js";
 import { canonicalJSONLine, canonicalJSONLineBytes } from "./canonical-json.js";
 import { sha256Hex } from "./hash.js";
+import { readRegularFileNoFollow } from "./snapshot.js";
 
 const RECEIPT_FILE = "receipt.jsonl";
 const RECEIPT_DIGEST_FILE = "receipt.sha256";
@@ -17,7 +18,8 @@ async function atomicWriteFile(path, content) {
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(tmp, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
   try {
-    await rename(tmp, path);
+    await link(tmp, path);
+    await rm(tmp, { force: true });
     await chmod(path, 0o600);
   } catch (error) {
     await rm(tmp, { force: true });
@@ -41,7 +43,8 @@ function parsePersistedJsonLine(line, label) {
 }
 
 async function readJsonLineWithExpectedHash(path, expectedSha256, label) {
-  const line = await readFile(path, "utf8");
+  const { bytes } = await readRegularFileNoFollow(path, label);
+  const line = bytes.toString("utf8");
   assertSingleJsonLine(line, label);
   const actualSha256 = sha256Hex(Buffer.from(line, "utf8"));
   if (actualSha256 !== expectedSha256) {
@@ -115,10 +118,12 @@ export async function writeEvidenceBundle(options) {
 
 export async function readEvidenceBundle(artifactRoot) {
   const paths = evidencePaths(artifactRoot);
-  const [receiptLine, receiptDigestLine] = await Promise.all([
-    readFile(paths.receipt, "utf8"),
-    readFile(paths.receiptDigest, "utf8"),
+  const [receiptBytes, receiptDigestBytes] = await Promise.all([
+    readRegularFileNoFollow(paths.receipt, "Evidence receipt"),
+    readRegularFileNoFollow(paths.receiptDigest, "Evidence receipt digest"),
   ]);
+  const receiptLine = receiptBytes.bytes.toString("utf8");
+  const receiptDigestLine = receiptDigestBytes.bytes.toString("utf8");
 
   assertSingleJsonLine(receiptLine, "Evidence receipt");
   if (!SHA256_LINE_PATTERN.test(receiptDigestLine)) {
