@@ -577,6 +577,17 @@ async function executeRun(context, options) {
     if (result.executor_kind !== state.executor_kind) {
       throw safetyRefusal("Executor result kind does not match run state.");
     }
+    const plannedRoute = context.inputs.workflowPlan.value.route_selection;
+    const resultRoute = result.route_selection;
+    if (
+      (plannedRoute === undefined) !== (resultRoute === undefined) ||
+      (plannedRoute !== undefined &&
+        sha256CanonicalJSONLine(plannedRoute) !== sha256CanonicalJSONLine(resultRoute))
+    ) {
+      throw safetyRefusal(
+        "Executor result route selection does not match the frozen workflow plan.",
+      );
+    }
     await assertDeterministicResultMatchesWorkspace({
       workspaceRoot,
       result,
@@ -882,7 +893,27 @@ export async function resumeHarness(options = {}) {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
     return finishFromExistingEvidence(context, evidence);
   }
-  return executeRun(context, options);
+  const routeSelection = context.inputs.workflowPlan.value.route_selection;
+  if (routeSelection === undefined) {
+    return executeRun(context, options);
+  }
+  if (options.executor !== undefined) {
+    throw usageError("Routed resume does not accept an injected executor.");
+  }
+  const routed = createOneAttemptRoutedExecutor({
+    selection: routeSelection,
+    adapterRegistry: options.adapterRegistry,
+  });
+  if (routed.executor_kind !== context.state.executor_kind) {
+    throw safetyRefusal(
+      "Resumed route executor kind does not match the frozen run state.",
+    );
+  }
+  const completed = await executeRun(
+    context,
+    { ...options, executor: routed.executor },
+  );
+  return Object.freeze({ ...completed, route_selection: routeSelection });
 }
 
 export async function resumeDeterministicHarness(options = {}) {

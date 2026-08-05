@@ -8,6 +8,7 @@ import {
   createOneAttemptRoutedExecutor,
   readEvidenceBundle,
   readFrozenRunInputs,
+  resumeHarness,
   runOneAttemptRoutedHarness,
   selectExecutionRoute,
   sha256Hex,
@@ -174,7 +175,33 @@ test("actual one-attempt run persists route evidence and stops before apply", as
     }],
   })}\n`);
   const stateDir = join(projectRoot, ".harness");
-  const completed = await runOneAttemptRoutedHarness({
+  let executorCalls = 0;
+  const adapterRegistry = {
+    "fixture-deterministic": {
+      executor_kind: "deterministic",
+      model_ids: ["opaque-fixture-model"],
+      reasoning_efforts: ["low"],
+      executor_input_validator: (value) => value,
+      create_executor: () => async ({ workspaceRoot, input }) => {
+        executorCalls += 1;
+        const change = input.input.changes[0];
+        const bytes = Buffer.from(change.candidate, "utf8");
+        await writeFile(join(workspaceRoot, change.path), bytes);
+        return {
+          schema_version: { major: 1 },
+          run_id: input.run_id,
+          executor_kind: "deterministic",
+          status: "completed",
+          changes: [{
+            path: change.path,
+            content_base64: bytes.toString("base64"),
+            sha256: sha256Hex(bytes),
+          }],
+        };
+      },
+    },
+  };
+  await assert.rejects(runOneAttemptRoutedHarness({
     runId: "run-routed-evidence",
     runSpec: {
       schema_version: { major: 1 },
@@ -212,33 +239,26 @@ test("actual one-attempt run persists route evidence and stops before apply", as
       ],
     },
     riskTier: "low",
-    adapterRegistry: {
-      "fixture-deterministic": {
-        executor_kind: "deterministic",
-        model_ids: ["opaque-fixture-model"],
-        reasoning_efforts: ["low"],
-        executor_input_validator: (value) => value,
-        create_executor: () => async ({ workspaceRoot, input }) => {
-          const change = input.input.changes[0];
-          const bytes = Buffer.from(change.candidate, "utf8");
-          await writeFile(join(workspaceRoot, change.path), bytes);
-          return {
-            schema_version: { major: 1 },
-            run_id: input.run_id,
-            executor_kind: "deterministic",
-            status: "completed",
-            changes: [{
-              path: change.path,
-              content_base64: bytes.toString("base64"),
-              sha256: sha256Hex(bytes),
-            }],
-          };
-        },
-      },
+    adapterRegistry,
+    onCheckpoint({ state }) {
+      if (state.lifecycle_state === "executing") {
+        throw new Error("simulated interruption before routed execution");
+      }
     },
+  }), /simulated interruption/u);
+  assert.equal(executorCalls, 0);
+  await assert.rejects(
+    resumeHarness({ stateDir, runId: "run-routed-evidence" }),
+    /registry must be an object or Map/u,
+  );
+  const completed = await resumeHarness({
+    stateDir,
+    runId: "run-routed-evidence",
+    adapterRegistry,
   });
 
   assert.equal(completed.state.lifecycle_state, "receipted");
+  assert.equal(executorCalls, 1);
   assert.equal(await readFile(join(projectRoot, targetPath), "utf8"), "source\n");
   const frozen = await readFrozenRunInputs(stateDir, "run-routed-evidence");
   const evidence = await readEvidenceBundle(completed.state.artifact_root);
