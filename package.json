@@ -1,0 +1,41 @@
+{
+  "name": "verifiable-agent-harness",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "A verifiable execution harness for safe, policy-driven AI code changes",
+  "type": "module",
+  "bin": {
+    "verifiable-agent-harness": "bin/verifiable-agent-harness.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "check": "node --check bin/verifiable-agent-harness.js && node --check src/index.js",
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11.5.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Poketopa/verifiable-agent-harness.git"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai-agent",
+    "developer-tools",
+    "evidence",
+    "harness",
+    "verification"
+  ]
+}
