@@ -72,7 +72,7 @@ test("contract field tables match the PRD required fields", () => {
     "source_snapshot_sha256",
     "verification_sha256",
     "result_sha256",
-    "approval_required_sha256",
+    "approval_method",
     "issued_at",
   ]);
 });
@@ -123,7 +123,7 @@ test("contracts round-trip schema version and freeze persisted fields", () => {
       source_snapshot_sha256: hash,
       verification_sha256: hash,
       result_sha256: hash,
-      approval_required_sha256: hash,
+      approval_method: "receipt_sha256",
       issued_at: "2026-08-05T00:00:00.000Z",
     }),
   ];
@@ -219,7 +219,7 @@ test("receipt rejects self-hash and run-state immutable fields are explicit", ()
         source_snapshot_sha256: hash,
         verification_sha256: hash,
         result_sha256: hash,
-        approval_required_sha256: hash,
+        approval_method: "receipt_sha256",
         issued_at: "2026-08-05T00:00:00.000Z",
         receipt_sha256: hash,
       }),

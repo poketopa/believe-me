@@ -73,3 +73,23 @@ export {
   runStatePath,
   writeRunState,
 } from "./core/state-store.js";
+export {
+  compareCodeUnit,
+  assertInsideRoot,
+  createProjectSnapshot,
+  isExcludedRelativePath,
+  normalizeRelativePath,
+} from "./core/snapshot.js";
+export {
+  evidencePaths,
+  readEvidenceBundle,
+  writeEvidenceBundle,
+} from "./core/evidence.js";
+export {
+  VerificationRollbackError,
+  captureOriginalBytes,
+  restoreOriginalBytes,
+} from "./core/rollback.js";
+export {
+  applyEvidenceBundle,
+} from "./core/apply.js";

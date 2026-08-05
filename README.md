@@ -39,6 +39,11 @@ The first CLI surface will be `init`, `run`, `status`, `receipt`, and `apply`.
 
 Node.js 24 LTS or later is required.
 
+Apply locks are immutable owner-token files. If an `apply.recovery.lock.jsonl`
+file remains after an interrupted recovery attempt, the harness preserves it as
+evidence and refuses further apply attempts until a manual investigation removes
+or archives that recovery lock.
+
 ```bash
 npm ci
 npm test
