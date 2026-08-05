@@ -163,6 +163,38 @@ export {
   parseCliArgs,
 } from "./cli/args.js";
 export {
+  BENCHMARK_ARMS,
+  BENCHMARK_ARM_RESULT_REQUIRED_FIELDS,
+  BENCHMARK_EXPERIMENT_REQUIRED_FIELDS,
+  BENCHMARK_FAILURE_PHASES,
+  BENCHMARK_ORDER_ALGORITHM,
+  BENCHMARK_PAIR_ORDERS,
+  BENCHMARK_PAIR_RESULT_REQUIRED_FIELDS,
+  BENCHMARK_PROTOCOL_INVALID_REASONS,
+  BENCHMARK_TASK_REQUIRED_FIELDS,
+  BENCHMARK_TERMINAL_STATUSES,
+  BENCHMARK_VERIFICATION_STATUSES,
+  validateBenchmarkArmResult,
+  validateBenchmarkExperiment,
+  validateBenchmarkPairResult,
+  validateBenchmarkTask,
+} from "./benchmark/contracts.js";
+export {
+  buildBenchmarkLedger,
+  parseBenchmarkLedger,
+  readBenchmarkLedger,
+  writeBenchmarkLedger,
+} from "./benchmark/ledger.js";
+export {
+  pairedOrder,
+  runDirectCodexBenchmarkArm,
+  runHarnessBenchmarkArm,
+  runPairedBenchmark,
+} from "./benchmark/runner.js";
+export {
+  summarizeBenchmarkPairs,
+} from "./benchmark/statistics.js";
+export {
   executeCliCommand,
 } from "./cli/commands.js";
 export {

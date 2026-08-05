@@ -67,4 +67,18 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(version.code, 0, version.stderr);
   assert.equal(version.stderr, "");
   assert.equal(version.stdout, "0.0.0-development\n");
+
+  const benchmarkApi = await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "import { summarizeBenchmarkPairs, runPairedBenchmark } from 'verifiable-agent-harness'; console.log(typeof summarizeBenchmarkPairs, typeof runPairedBenchmark);",
+    ],
+    { cwd: installRoot, env: process.env },
+  );
+  assert.equal(benchmarkApi.signal, null);
+  assert.equal(benchmarkApi.code, 0, benchmarkApi.stderr);
+  assert.equal(benchmarkApi.stderr, "");
+  assert.equal(benchmarkApi.stdout, "function function\n");
 });

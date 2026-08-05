@@ -65,6 +65,19 @@ spawn (`shell: false`). Gradle distribution and dependency versions are locked;
 GitHub Actions also runs the preservation test against a digest-pinned
 PostgreSQL service.
 
+## Paired benchmark direction
+
+Milestone 2 adds an honest paired comparison between direct Codex execution and
+the harness treatment. It keeps identical task baselines, provider settings, and
+verifiers while measuring verified success, unsafe changes, pre-verification
+source mutation, tokens, latency, and orchestration overhead. Infrastructure and
+negative outcomes remain in the report instead of being filtered until an
+experiment appears to pass.
+
+The protocol and claim boundary are documented in
+[docs/BENCHMARK.md](docs/BENCHMARK.md). Living reports are descriptive; there is
+no global benchmark pass gate and no universal-efficacy claim.
+
 ## CLI contract
 
 Every command outcome writes exactly one canonical JSONL record: success goes
@@ -155,6 +168,16 @@ npm run smoke:codex
 
 It stops at `receipted` and proves that the original source remains unchanged;
 it does not auto-approve or apply the generated candidate.
+
+The paired A/B pilot is also opt-in and consumes two Codex runs:
+
+```bash
+npm run benchmark:smoke:codex
+```
+
+It writes a replay-verified canonical JSONL ledger and digest under a temporary
+benchmark directory. A one-pair result is labelled `pilot`; it validates the
+measurement path but is not presented as efficacy evidence.
 
 ## npm publication
 
