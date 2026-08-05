@@ -31,6 +31,7 @@ import {
   restoreOriginalBytes,
   safeReplaceFile,
 } from "./rollback.js";
+import { createIsolatedWorkspace } from "./workspace.js";
 
 const LOCK_FILE = "apply.lock.jsonl";
 const RECOVERY_LOCK_FILE = "apply.recovery.lock.jsonl";
@@ -917,19 +918,55 @@ export async function applyEvidenceBundle(options) {
       });
     }
 
+    const candidateSnapshot = await createProjectSnapshot(root);
+    const verificationWorkspace = join(
+      runDirectory(stateDir, runId),
+      "apply-verification-workspace",
+    );
+    await rm(verificationWorkspace, { recursive: true, force: true });
+    await createIsolatedWorkspace({
+      projectRoot: root,
+      workspaceRoot: verificationWorkspace,
+      expectedSnapshotSha256: candidateSnapshot.sha256,
+    });
+
     let verifierResult;
     try {
       verifierResult = await verifier({
-        projectRoot: root,
+        projectRoot: verificationWorkspace,
         changed_paths: targets.map((target) => target.relativePath),
         receipt: evidence.receipt,
       });
     } catch (error) {
       throw verifierFailure("Verifier callback threw during apply.", {}, error);
+    } finally {
+      const verifiedWorkspaceSnapshot = await createProjectSnapshot(
+        verificationWorkspace,
+      ).catch(() => null);
+      await rm(verificationWorkspace, { recursive: true, force: true });
+      if (
+        verifiedWorkspaceSnapshot === null ||
+        verifiedWorkspaceSnapshot.sha256 !== candidateSnapshot.sha256
+      ) {
+        throw verifierFailure(
+          "Verifier mutated or invalidated the isolated applied candidate.",
+          {
+            expected_sha256: candidateSnapshot.sha256,
+            actual_sha256: verifiedWorkspaceSnapshot?.sha256 ?? null,
+          },
+        );
+      }
     }
     if (verifierResult !== true) {
       throw verifierFailure("Verifier callback did not approve applied candidate.", {
         verifier_result: verifierResult,
+      });
+    }
+    const afterVerifierSnapshot = await createProjectSnapshot(root);
+    if (afterVerifierSnapshot.sha256 !== candidateSnapshot.sha256) {
+      throw verifierFailure("Source tree changed during isolated apply verification.", {
+        expected_sha256: candidateSnapshot.sha256,
+        actual_sha256: afterVerifierSnapshot.sha256,
       });
     }
 

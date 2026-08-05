@@ -6,6 +6,7 @@ import {
   deepFreeze,
   validateContractBase,
 } from "./common.js";
+import { validateVerifierSpec } from "./verifier.js";
 
 export const SKILL_MANIFEST_REQUIRED_FIELDS = Object.freeze([
   "schema_version",
@@ -25,6 +26,9 @@ export function validateSkillManifest(value, options = {}) {
   assertStringArray(value.executor_kinds, "executor_kinds", EXECUTOR_KINDS);
   assertString(value.input_schema_ref, "input_schema_ref");
   assertObject(value.policy_rules, "policy_rules");
+  if (Object.hasOwn(value, "verifier")) {
+    validateVerifierSpec(value.verifier, options);
+  }
   return deepFreeze(structuredClone(value));
 }
 

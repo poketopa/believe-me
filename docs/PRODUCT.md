@@ -51,6 +51,25 @@ The stable pre-release JSONL CLI exposes `init`, `run`, `status`, `receipt`, and
 codes. Both executor kinds reuse the same state, receipt, explicit approval,
 atomic apply, and resume contracts.
 
+## Verifier selection
+
+`SkillManifest.verifier` is an optional versioned descriptor. New manifests can
+select either the canonical `spring-verifier` or a bounded `command-verifier`.
+The latter freezes exact command argv, timeout, and output limits, then executes
+with no shell, a reduced environment, fixed cwd, bounded capture, and forced
+cleanup. POSIX executions use a dedicated process group, fail closed on
+uncleanable residue, and reject project-relative verifier executables that
+traverse symlinks. Existing major-v1 manifests without the descriptor retain an
+explicit Spring compatibility route rather than becoming unreadable.
+
+The manifest is already digest-bound into the workflow plan, run state, frozen
+inputs, and receipt. Run/resume and apply therefore resolve the same verifier
+from the same frozen bytes. Apply performs its final verification in a fresh
+copy of the applied candidate and refuses verifier-created source drift before
+committing lifecycle state. A dependency-free Node reservation fixture exercises
+the installed npm tarball through run, receipt approval, and apply, proving the
+CLI boundary beyond Spring.
+
 ## Measurement layer
 
 The paired benchmark layer compares a direct Codex working-copy edit with the
@@ -71,6 +90,7 @@ and a frozen analysis cut justify a stronger comparison.
 ## Core contracts
 
 - `SkillManifest`
+- `VerifierSpec`
 - `WorkflowPlan`
 - `RunSpec`
 - `RunState`

@@ -28,7 +28,7 @@ skill / policy
 
 - one npm CLI package;
 - one Codex execution adapter;
-- one Java/Spring verification adapter;
+- manifest-selected bounded command verification plus one Java/Spring reference adapter;
 - one Spring use-case policy;
 - one Roomescape development fixture;
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
@@ -64,6 +64,13 @@ The fixture is verified through its pinned Gradle wrapper with a direct argv
 spawn (`shell: false`). Gradle distribution and dependency versions are locked;
 GitHub Actions also runs the preservation test against a digest-pinned
 PostgreSQL service.
+
+Verifier selection is no longer hard-coded by the CLI. A skill manifest may bind
+an explicit `command-verifier` argv, timeout, and output limit; that exact
+descriptor is frozen and reused for run, resume, receipt, and apply. Legacy
+major-v1 manifests without the field retain the Spring compatibility route.
+Apply re-verification runs in a fresh copy of the applied candidate, so verifier
+source drift cannot contaminate the user's project.
 
 ## Paired benchmark direction
 
@@ -120,6 +127,30 @@ execution. The adapter follows the official
 [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
 contract.
 
+Language-neutral verification is declared in the same manifest:
+
+```json
+{
+  "verifier": {
+    "schema_version": { "major": 1 },
+    "adapter_id": "command-verifier",
+    "command": "node",
+    "args": ["--test"],
+    "timeout_ms": 30000,
+    "max_output_bytes": 1048576
+  }
+}
+```
+
+The command is spawned as exact argv with `shell: false`, a fixed project cwd,
+a reduced environment, bounded combined output, timeout, and forced cleanup.
+On POSIX, the verifier receives its own process group; descendant residue is
+terminated and an uncleanable group fails closed instead of producing a pass.
+The verifier is user-authorized project code: this adapter does not provide a
+network sandbox or install dependencies. Project-relative executable paths must
+start with `./`, resolve through regular non-symlink entries, and remain inside
+the project; bare executable names use the reduced `PATH`.
+
 | Exit | Meaning |
 | ---: | --- |
 | 0 | command succeeded |
@@ -137,7 +168,10 @@ Example success record:
 
 The complete record also includes the receipt hash, artifact root, and state
 directory. The CLI is covered both as a source process and after installing an
-`npm pack` tarball into a clean temporary project.
+`npm pack` tarball into a clean temporary project. The installed tarball proof
+also repairs and applies a dependency-free Node reservation policy through the
+manifest-selected command verifier, demonstrating that the CLI lifecycle is not
+tied to Spring.
 
 ## Development
 

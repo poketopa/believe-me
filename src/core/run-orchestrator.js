@@ -22,7 +22,7 @@ import {
   validateDeterministicExecutorInput,
   validateDeterministicExecutorResult,
 } from "../contracts/deterministic-executor.js";
-import { runSpringVerifier } from "../adapters/spring-verifier.js";
+import { createManifestVerifier } from "../adapters/manifest-verifier.js";
 import { canonicalJSONLineBytes } from "./canonical-json.js";
 import { writeEvidenceBundle, readEvidenceBundle, evidencePaths } from "./evidence.js";
 import { sha256CanonicalJSONLine, sha256Hex } from "./hash.js";
@@ -579,8 +579,9 @@ async function executeRun(context, options) {
     throw error;
   }
 
-  const verifier = options.verifier ?? (async ({ workspaceRoot: root }) =>
-    runSpringVerifier({ fixtureRoot: root }));
+  const verifier = options.verifier ?? createManifestVerifier(
+    context.inputs.manifest.value,
+  );
   let verification;
   try {
     verification = await verifier({
