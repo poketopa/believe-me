@@ -1,0 +1,33 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot[bot]
+  categories:
+    - title: Kernel and Evidence Contract
+      labels:
+        - release:kernel
+        - area:core
+        - area:apply
+    - title: Verifiers and Adapters
+      labels:
+        - release:verifier
+        - area:verifier
+        - area:adapter
+    - title: Benchmark Evidence
+      labels:
+        - release:benchmark
+        - area:benchmark
+    - title: Release and Security Governance
+      labels:
+        - release:governance
+        - area:release
+        - area:security
+    - title: Documentation
+      labels:
+        - documentation
+        - docs
+    - title: Other Changes
+      labels:
+        - "*"
