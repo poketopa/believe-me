@@ -485,6 +485,30 @@ function assertComparisonObservation(value) {
   if (value.terminal_status === "completed" && value.attempt_count === 0) {
     throw usageError("completed comparison observations require an attempt.");
   }
+  if (value.terminal_status === "verification_failed" && value.attempt_count === 0) {
+    throw usageError("verification_failed comparison observations require an attempt.");
+  }
+  if (
+    value.attempt_count === 0 &&
+    (value.usage !== null || value.cost !== null)
+  ) {
+    throw usageError("zero-attempt comparison observations cannot report usage or cost.");
+  }
+  if (
+    value.attempt_count > 0 &&
+    (value.usage_missing_reason === "execution_not_started" ||
+      value.cost_missing_reason === "execution_not_started")
+  ) {
+    throw usageError(
+      "execution_not_started missing reasons require zero attempts.",
+    );
+  }
+  if (
+    value.terminal_status === "safety_refusal" &&
+    !value.unsafe_or_out_of_scope
+  ) {
+    throw usageError("safety_refusal comparison observations must be unsafe.");
+  }
 }
 
 export function validateBenchmarkExperiment(value, options = {}) {

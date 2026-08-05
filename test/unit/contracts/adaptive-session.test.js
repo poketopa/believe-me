@@ -51,22 +51,11 @@ function timing(overrides = {}) {
 
 function cost(overrides = {}) {
   return {
-    observation_status: "observed",
+    observation_status: "observed_billed",
     amount: 0.25,
     currency: "USD",
     pricing_source: "fixture-price-table",
     ...overrides,
-  };
-}
-
-function missing(reason = "provider_not_reported") {
-  return { missing_reason: reason };
-}
-
-function missingCost(reason = "provider_not_reported") {
-  return {
-    observation_status: "missing",
-    missing_reason: reason,
   };
 }
 
@@ -86,8 +75,10 @@ function attempt(overrides = {}) {
     verification_status: "passed",
     winner: true,
     usage: usage(),
+    usage_missing_reason: null,
     timing: timing(),
     cost: cost(),
+    cost_missing_reason: null,
     ...overrides,
   };
 }
@@ -100,8 +91,10 @@ function session(overrides = {}) {
     context_pack_sha256,
     attempts: [attempt()],
     aggregate_usage: usage(),
+    aggregate_usage_missing_reason: null,
     aggregate_timing: timing(),
     aggregate_cost: cost(),
+    aggregate_cost_missing_reason: null,
     ...overrides,
   };
 }
@@ -114,8 +107,10 @@ test("adaptive session field tables are explicit", () => {
     "context_pack_sha256",
     "attempts",
     "aggregate_usage",
+    "aggregate_usage_missing_reason",
     "aggregate_timing",
     "aggregate_cost",
+    "aggregate_cost_missing_reason",
   ]);
   assert.deepEqual(ADAPTIVE_ATTEMPT_REQUIRED_FIELDS, [
     "attempt_index",
@@ -132,8 +127,10 @@ test("adaptive session field tables are explicit", () => {
     "verification_status",
     "winner",
     "usage",
+    "usage_missing_reason",
     "timing",
     "cost",
+    "cost_missing_reason",
   ]);
 });
 
@@ -268,6 +265,26 @@ test("adaptive session rejects unknown route reasons and invalid winners", () =>
   );
 });
 
+test("adaptive session rejects contradictory terminal and verification states", () => {
+  for (const [status, verification_status] of [
+    ["completed", "not_run"],
+    ["verification_failed", "not_run"],
+    ["infra_error", "failed"],
+    ["timeout", "passed"],
+  ]) {
+    assert.throws(
+      () => validateAdaptiveSession(session({
+        attempts: [attempt({
+          status,
+          verification_status,
+          winner: false,
+        })],
+      })),
+      /attempts require verification_status/,
+    );
+  }
+});
+
 test("adaptive session rejects aggregate usage or cost below component sums", () => {
   assert.throws(
     () =>
@@ -363,49 +380,47 @@ test("adaptive session requires typed missing reasons for absent usage and cost"
     session({
       attempts: [
         attempt({
-          usage: missing("adapter_not_instrumented"),
-          cost: missingCost("provider_not_reported"),
+          usage: null,
+          usage_missing_reason: "adapter_not_instrumented",
+          cost: null,
+          cost_missing_reason: "provider_not_reported",
         }),
       ],
-      aggregate_usage: missing("adapter_not_instrumented"),
-      aggregate_cost: missingCost("provider_not_reported"),
+      aggregate_usage: null,
+      aggregate_usage_missing_reason: "adapter_not_instrumented",
+      aggregate_cost: null,
+      aggregate_cost_missing_reason: "provider_not_reported",
     }),
   );
 
-  assert.equal(validated.attempts[0].usage.missing_reason, "adapter_not_instrumented");
-  assert.equal(validated.aggregate_cost.observation_status, "missing");
+  assert.equal(validated.attempts[0].usage, null);
+  assert.equal(validated.attempts[0].usage_missing_reason, "adapter_not_instrumented");
+  assert.equal(validated.aggregate_cost, null);
+  assert.equal(validated.aggregate_cost_missing_reason, "provider_not_reported");
 
   assert.throws(
     () => validateAdaptiveSession(session({ aggregate_usage: null })),
-    /aggregate_usage must be an object/,
+    /aggregate_usage_missing_reason contains unsupported value/,
   );
   assert.throws(
-    () =>
-      validateAdaptiveSession(
-        session({
-          aggregate_cost: {
-            observation_status: "missing",
-          },
-        }),
-      ),
-    /missing required field 'missing_reason'/,
+    () => validateAdaptiveSession(session({
+      aggregate_cost: null,
+      aggregate_cost_missing_reason: "unknown",
+    })),
+    /unsupported value 'unknown'/,
   );
 });
 
 test("adaptive session rejects cost without full observation metadata", () => {
   for (const invalidCost of [
-    { observation_status: "observed", amount: 0.1, currency: "USD" },
-    { observation_status: "observed", amount: 0.1, pricing_source: "fixture" },
-    { observation_status: "observed", currency: "USD", pricing_source: "fixture" },
-    {
-      observation_status: "missing",
-      missing_reason: "provider_not_reported",
-      amount: 0,
-    },
+    { observation_status: "observed_billed", amount: 0.1, currency: "USD" },
+    { observation_status: "observed_billed", amount: 0.1, pricing_source: "fixture" },
+    { observation_status: "observed_billed", currency: "USD", pricing_source: "fixture" },
+    { observation_status: "unknown", amount: 0.1, currency: "USD", pricing_source: "fixture" },
   ]) {
     assert.throws(
       () => validateAdaptiveSession(session({ aggregate_cost: invalidCost })),
-      /missing required field|must be absent/,
+      /missing required field|unsupported value/,
     );
   }
 });
@@ -414,14 +429,18 @@ test("adaptive session canonical JSON digest is stable across key order", () => 
   const left = validateAdaptiveSession(session());
   const right = validateAdaptiveSession({
     aggregate_cost: cost(),
+    aggregate_cost_missing_reason: null,
     aggregate_timing: timing(),
     aggregate_usage: usage(),
+    aggregate_usage_missing_reason: null,
     attempts: [
       {
         attempt_index: 0,
         cost: cost(),
+        cost_missing_reason: null,
         timing: timing(),
         usage: usage(),
+        usage_missing_reason: null,
         winner: true,
         verification_status: "passed",
         status: "completed",

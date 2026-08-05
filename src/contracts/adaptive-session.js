@@ -34,8 +34,8 @@ export const ADAPTIVE_TELEMETRY_MISSING_REASONS = Object.freeze([
 ]);
 
 export const ADAPTIVE_COST_OBSERVATION_STATUSES = Object.freeze([
-  "observed",
-  "missing",
+  "observed_billed",
+  "estimated",
 ]);
 
 export const ADAPTIVE_TIMING_COMPONENTS = Object.freeze([
@@ -53,8 +53,10 @@ export const ADAPTIVE_SESSION_REQUIRED_FIELDS = Object.freeze([
   "context_pack_sha256",
   "attempts",
   "aggregate_usage",
+  "aggregate_usage_missing_reason",
   "aggregate_timing",
   "aggregate_cost",
+  "aggregate_cost_missing_reason",
 ]);
 
 export const ADAPTIVE_ATTEMPT_REQUIRED_FIELDS = Object.freeze([
@@ -72,8 +74,10 @@ export const ADAPTIVE_ATTEMPT_REQUIRED_FIELDS = Object.freeze([
   "verification_status",
   "winner",
   "usage",
+  "usage_missing_reason",
   "timing",
   "cost",
+  "cost_missing_reason",
 ]);
 
 const usageFields = Object.freeze([
@@ -106,26 +110,17 @@ function assertMissingReason(value, field) {
   assertEnum(value, field, ADAPTIVE_TELEMETRY_MISSING_REASONS);
 }
 
-function assertUsage(value, field) {
+function assertUsage(value, missingReason, field) {
   if (value === null) {
-    throw usageError(`${field} must be an object with usage or a missing reason.`, {
-      field,
+    assertMissingReason(missingReason, `${field}_missing_reason`);
+    return null;
+  }
+  if (missingReason !== null) {
+    throw usageError(`${field}_missing_reason must be null when usage is present.`, {
+      field: `${field}_missing_reason`,
     });
   }
   assertObject(value, field);
-  if (Object.hasOwn(value, "missing_reason")) {
-    assertRequiredFields(value, ["missing_reason"], field);
-    assertMissingReason(value.missing_reason, `${field}.missing_reason`);
-    for (const usageField of usageFields) {
-      if (Object.hasOwn(value, usageField)) {
-        throw usageError(
-          `${field}.${usageField} must be absent when usage is missing.`,
-          { field: `${field}.${usageField}` },
-        );
-      }
-    }
-    return null;
-  }
 
   for (const usageField of usageFields) {
     assertNonnegativeSafeInteger(value[usageField], `${field}.${usageField}`);
@@ -171,33 +166,26 @@ function assertTiming(value, field) {
   }
 }
 
-function assertCost(value, field) {
-  assertObject(value, field);
-  assertRequiredFields(value, ["observation_status"], field);
-  assertEnum(
-    value.observation_status,
-    `${field}.observation_status`,
-    ADAPTIVE_COST_OBSERVATION_STATUSES,
-  );
-
-  if (value.observation_status === "missing") {
-    assertRequiredFields(value, ["observation_status", "missing_reason"], field);
-    assertMissingReason(value.missing_reason, `${field}.missing_reason`);
-    for (const costField of ["amount", "currency", "pricing_source"]) {
-      if (Object.hasOwn(value, costField)) {
-        throw usageError(
-          `${field}.${costField} must be absent when cost is missing.`,
-          { field: `${field}.${costField}` },
-        );
-      }
-    }
+function assertCost(value, missingReason, field) {
+  if (value === null) {
+    assertMissingReason(missingReason, `${field}_missing_reason`);
     return null;
   }
-
+  if (missingReason !== null) {
+    throw usageError(`${field}_missing_reason must be null when cost is present.`, {
+      field: `${field}_missing_reason`,
+    });
+  }
+  assertObject(value, field);
   assertRequiredFields(
     value,
     ["observation_status", "amount", "currency", "pricing_source"],
     field,
+  );
+  assertEnum(
+    value.observation_status,
+    `${field}.observation_status`,
+    ADAPTIVE_COST_OBSERVATION_STATUSES,
   );
   assertNonnegativeFiniteNumber(value.amount, `${field}.amount`);
   if (typeof value.currency !== "string" || !/^[A-Z]{3}$/u.test(value.currency)) {
@@ -207,11 +195,6 @@ function assertCost(value, field) {
     );
   }
   assertString(value.pricing_source, `${field}.pricing_source`);
-  if (Object.hasOwn(value, "missing_reason")) {
-    throw usageError(`${field}.missing_reason must be absent when cost is observed.`, {
-      field: `${field}.missing_reason`,
-    });
-  }
   return value;
 }
 
@@ -249,23 +232,35 @@ function assertAttempt(value, sessionContextDigest, expectedIndex) {
   );
   assertBoolean(value.winner, "attempt.winner");
   assertTiming(value.timing, "attempt.timing");
-  const usage = assertUsage(value.usage, "attempt.usage");
-  const cost = assertCost(value.cost, "attempt.cost");
+  const usage = assertUsage(
+    value.usage,
+    value.usage_missing_reason,
+    "attempt.usage",
+  );
+  const cost = assertCost(
+    value.cost,
+    value.cost_missing_reason,
+    "attempt.cost",
+  );
 
   if (value.winner && value.verification_status !== "passed") {
     throw usageError("winner attempts must be verifier-passed.", {
       field: "attempt.winner",
     });
   }
-  if (value.verification_status === "passed" && value.status !== "completed") {
-    throw usageError("passed attempts must have completed status.", {
-      field: "attempt.verification_status",
-    });
-  }
-  if (value.status === "safety_refusal" && value.verification_status !== "not_run") {
-    throw usageError("safety_refusal attempts must not run verification.", {
-      field: "attempt.verification_status",
-    });
+  const expectedVerificationStatus = {
+    completed: "passed",
+    verification_failed: "failed",
+    safety_refusal: "not_run",
+    infra_error: "not_run",
+    timeout: "not_run",
+    budget_exhausted: "not_run",
+  }[value.status];
+  if (value.verification_status !== expectedVerificationStatus) {
+    throw usageError(
+      `${value.status} attempts require verification_status '${expectedVerificationStatus}'.`,
+      { field: "attempt.verification_status" },
+    );
   }
 
   return { usage, cost };
@@ -318,8 +313,8 @@ function assertAttempts(value, sessionContextDigest) {
   return { observedUsages, observedCosts, observedTimings };
 }
 
-function assertAggregateUsage(value, observedUsages) {
-  const aggregate = assertUsage(value, "aggregate_usage");
+function assertAggregateUsage(value, missingReason, observedUsages) {
+  const aggregate = assertUsage(value, missingReason, "aggregate_usage");
   if (aggregate === null) {
     return;
   }
@@ -337,8 +332,8 @@ function assertAggregateUsage(value, observedUsages) {
   }
 }
 
-function assertAggregateCost(value, observedCosts) {
-  const aggregate = assertCost(value, "aggregate_cost");
+function assertAggregateCost(value, missingReason, observedCosts) {
+  const aggregate = assertCost(value, missingReason, "aggregate_cost");
   if (aggregate === null) {
     return;
   }
@@ -392,9 +387,17 @@ export function validateAdaptiveSession(value, options = {}) {
     value.attempts,
     value.context_pack_sha256,
   );
-  assertAggregateUsage(value.aggregate_usage, observedUsages);
+  assertAggregateUsage(
+    value.aggregate_usage,
+    value.aggregate_usage_missing_reason,
+    observedUsages,
+  );
   assertAggregateTiming(value.aggregate_timing, observedTimings);
-  assertAggregateCost(value.aggregate_cost, observedCosts);
+  assertAggregateCost(
+    value.aggregate_cost,
+    value.aggregate_cost_missing_reason,
+    observedCosts,
+  );
   return deepFreeze(structuredClone(value));
 }
 

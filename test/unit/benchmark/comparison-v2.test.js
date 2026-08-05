@@ -232,6 +232,36 @@ test("comparison-v2 rejects bad bindings, cost metadata, missingness, and protoc
     })),
     /completed comparison observations require an attempt/,
   );
+  assert.throws(
+    () => validateComparisonV2PairResult(pair(1, {
+      control: {
+        ...pair().control,
+        observation: failedObservation({
+          attempt_count: 0,
+          usage: null,
+          usage_missing_reason: "execution_not_started",
+          cost: null,
+          cost_missing_reason: "execution_not_started",
+        }),
+      },
+    })),
+    /verification_failed comparison observations require an attempt/,
+  );
+  assert.throws(
+    () => validateComparisonV2PairResult(pair(1, {
+      control: {
+        ...pair().control,
+        observation: failedObservation({
+          attempt_count: 1,
+          usage: null,
+          usage_missing_reason: "execution_not_started",
+          cost: null,
+          cost_missing_reason: "execution_not_started",
+        }),
+      },
+    })),
+    /execution_not_started missing reasons require zero attempts/,
+  );
 });
 
 test("comparison-v2 summary retains failures and reports nullable cost honestly", () => {
