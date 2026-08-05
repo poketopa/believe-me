@@ -800,11 +800,7 @@ export async function runOneAttemptRoutedHarness(options = {}) {
     ...requestedSpec,
     executor_kind: routed.executor_kind,
   };
-  const runImplementation = options.runHarnessImpl ?? runHarness;
-  if (typeof runImplementation !== "function") {
-    throw usageError("runHarnessImpl must be a function.");
-  }
-  const completed = await runImplementation({
+  const completed = await runHarness({
     runId: options.runId,
     runSpec,
     executor: routed.executor,

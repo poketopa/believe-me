@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  createOneAttemptRoutedExecutor,
   readEvidenceBundle,
   readFrozenRunInputs,
   runOneAttemptRoutedHarness,
+  selectExecutionRoute,
   sha256Hex,
 } from "../../src/index.js";
 
@@ -104,18 +106,7 @@ test("Node and Spring fixtures use one injected route without mutating source", 
     await cp(fixture.root, workspaceRoot, { recursive: true, force: true });
     const original = await readFile(join(fixture.root, fixture.target), "utf8");
     const observed = { executorCalls: 0, factorySelections: [] };
-    const requestedRunSpec = {
-      schema_version: { major: 1 },
-      project_path: fixture.root,
-      state_dir: join(fixture.root, ".harness"),
-      skill_manifest_path: "manifest.json",
-      input_path: "input.json",
-      executor_kind: "codex",
-    };
-    let routedResult;
-    const completed = await runOneAttemptRoutedHarness({
-      runId: `run-${fixture.route}`,
-      runSpec: requestedRunSpec,
+    const selection = selectExecutionRoute({
       policy: routePolicy(),
       features: {
         context_bytes: 100,
@@ -123,34 +114,29 @@ test("Node and Spring fixtures use one injected route without mutating source", 
         verifier_kind: fixture.verifier,
         risk_tier: "medium",
       },
+    });
+    const routed = createOneAttemptRoutedExecutor({
+      selection,
       adapterRegistry: {
         "fixture-node": adapterEntry("opaque-node-model", "low", observed),
         "fixture-spring": adapterEntry("opaque-spring-model", "medium", observed),
       },
-      async runHarnessImpl(options) {
-        assert.equal(options.runSpec.executor_kind, "deterministic");
-        assert.equal(options.runSpec.project_path, requestedRunSpec.project_path);
-        assert.equal(options.runSpec.state_dir, requestedRunSpec.state_dir);
-        assert.equal(options.runSpec.skill_manifest_path, requestedRunSpec.skill_manifest_path);
-        assert.equal(options.runSpec.input_path, requestedRunSpec.input_path);
-        routedResult = await options.executor({
-          workspaceRoot,
-          input: {
-            run_id: `run-${fixture.route}`,
-            target_path: fixture.target,
-            source: original,
-          },
-        });
-        await assert.rejects(() => options.executor({}), /cannot be invoked twice/u);
-        return { state: { run_id: `run-${fixture.route}`, lifecycle_state: "receipted" } };
+    });
+    const routedResult = await routed.executor({
+      workspaceRoot,
+      input: {
+        run_id: `run-${fixture.route}`,
+        target_path: fixture.target,
+        source: original,
       },
     });
+    await assert.rejects(() => routed.executor({}), /cannot be invoked twice/u);
 
     assert.equal(observed.executorCalls, 1);
     assert.equal(observed.factorySelections.length, 1);
-    assert.equal(completed.route_selection.route_id, fixture.route);
-    assert.equal(completed.route_selection.adapter_id, fixture.adapter);
-    assert.deepEqual(routedResult.route_selection, completed.route_selection);
+    assert.equal(selection.route_id, fixture.route);
+    assert.equal(selection.adapter_id, fixture.adapter);
+    assert.deepEqual(routedResult.route_selection, selection);
     assert.equal(await readFile(join(fixture.root, fixture.target), "utf8"), original);
     assert.notEqual(await readFile(join(workspaceRoot, fixture.target), "utf8"), original);
   }
@@ -246,6 +232,11 @@ test("actual one-attempt run persists route evidence and stops before apply", as
   assert.equal(await readFile(join(projectRoot, targetPath), "utf8"), "source\n");
   const frozen = await readFrozenRunInputs(stateDir, "run-routed-evidence");
   const evidence = await readEvidenceBundle(completed.state.artifact_root);
+  assert.equal(frozen.runSpec.value.project_path, projectRoot);
+  assert.equal(frozen.runSpec.value.state_dir, stateDir);
+  assert.equal(frozen.runSpec.value.skill_manifest_path, manifestPath);
+  assert.equal(frozen.runSpec.value.input_path, inputPath);
+  assert.equal(frozen.runSpec.value.executor_kind, "deterministic");
   assert.deepEqual(frozen.workflowPlan.value.route_selection, completed.route_selection);
   assert.deepEqual(evidence.result.route_selection, completed.route_selection);
   assert.equal(evidence.result.changes[0].path, targetPath);
