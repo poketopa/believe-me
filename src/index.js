@@ -24,6 +24,13 @@ export {
   validateSkillManifest,
 } from "./contracts/skill-manifest.js";
 export {
+  COMMAND_VERIFIER_LIMITS,
+  LEGACY_SPRING_VERIFIER_SPEC,
+  VERIFIER_ADAPTER_IDS,
+  validateVerifierSpec,
+  verifierSpecFromManifest,
+} from "./contracts/verifier.js";
+export {
   WORKFLOW_PLAN_REQUIRED_FIELDS,
   freezeWorkflowPlan,
   validateWorkflowPlan,
@@ -151,6 +158,13 @@ export {
 export {
   createCodexExecutor,
 } from "./adapters/codex-executor.js";
+export {
+  createManifestVerifier,
+} from "./adapters/manifest-verifier.js";
+export {
+  COMMAND_VERIFIER_ADAPTER_ID,
+  runCommandVerifier,
+} from "./adapters/command-verifier.js";
 export {
   DEFAULT_MAX_CAPTURE_BYTES,
   DEFAULT_TIMEOUT_MS,

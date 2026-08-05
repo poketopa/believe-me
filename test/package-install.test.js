@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -23,6 +24,27 @@ function run(command, args, options = {}) {
       resolveResult({ code, signal, stdout, stderr });
     });
   });
+}
+
+function parseSuccessfulJsonl(result, command) {
+  assert.equal(result.signal, null);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.equal(result.stdout.endsWith("\n"), true);
+  assert.equal(result.stdout.slice(0, -1).includes("\n"), false);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.command, command);
+  assert.equal(payload.status, "ok");
+  return payload.data;
+}
+
+function candidate(path, content) {
+  const bytes = Buffer.from(content, "utf8");
+  return {
+    path,
+    content_base64: bytes.toString("base64"),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
 }
 
 test("npm tarball installs with a working executable", async () => {
@@ -81,4 +103,89 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(benchmarkApi.code, 0, benchmarkApi.stderr);
   assert.equal(benchmarkApi.stderr, "");
   assert.equal(benchmarkApi.stdout, "function function\n");
+
+  const fixtureRoot = resolve("test/fixtures/node-reservation-policy");
+  const projectRoot = join(installRoot, "node-reservation-policy");
+  const controlRoot = await mkdtemp(join(tmpdir(), "vah-install-control-"));
+  await cp(fixtureRoot, projectRoot, { recursive: true, force: true });
+  const targetPath = "src/reservation-policy.js";
+  const candidateSource = await readFile(join(projectRoot, targetPath), "utf8");
+  const baselineSource = candidateSource.replace(
+    "remainingSeats >= requestedSeats",
+    "remainingSeats > requestedSeats",
+  );
+  assert.notEqual(baselineSource, candidateSource);
+  await writeFile(join(projectRoot, targetPath), baselineSource);
+
+  const manifestPath = join(controlRoot, "skill-manifest.json");
+  const inputPath = join(controlRoot, "input.json");
+  await writeFile(manifestPath, `${JSON.stringify({
+    schema_version: { major: 1 },
+    manifest_id: "node-reservation-capacity",
+    name: "Node reservation capacity",
+    policy_id: "reservation-capacity-boundary",
+    executor_kinds: ["deterministic"],
+    input_schema_ref: "deterministic-executor-input/v1",
+    policy_rules: { exact_remaining_capacity_is_admitted: true },
+    verifier: {
+      schema_version: { major: 1 },
+      adapter_id: "command-verifier",
+      command: "node",
+      args: ["--test"],
+      timeout_ms: 30_000,
+      max_output_bytes: 1_048_576,
+    },
+  }, null, 2)}\n`);
+  await writeFile(inputPath, `${JSON.stringify({
+    changes: [candidate(targetPath, candidateSource)],
+  }, null, 2)}\n`);
+
+  parseSuccessfulJsonl(await run(executable, [
+    "init",
+    "--project",
+    projectRoot,
+  ], { cwd: installRoot, env: process.env }), "init");
+  const completed = parseSuccessfulJsonl(await run(executable, [
+    "run",
+    "--project",
+    projectRoot,
+    "--skill",
+    manifestPath,
+    "--executor",
+    "deterministic",
+    "--input",
+    inputPath,
+  ], { cwd: installRoot, env: process.env }), "run");
+  assert.equal(completed.lifecycle_state, "receipted");
+  assert.equal(await readFile(join(projectRoot, targetPath), "utf8"), baselineSource);
+
+  await writeFile(manifestPath, `${JSON.stringify({
+    schema_version: { major: 1 },
+    manifest_id: "mutated-live-manifest",
+    name: "This live manifest must not affect apply",
+    policy_id: "mutated-after-run",
+    executor_kinds: ["deterministic"],
+    input_schema_ref: "deterministic-executor-input/v1",
+    policy_rules: {},
+    verifier: {
+      schema_version: { major: 1 },
+      adapter_id: "command-verifier",
+      command: "node",
+      args: ["--eval", "process.exit(9)"],
+      timeout_ms: 30_000,
+      max_output_bytes: 1_048_576,
+    },
+  }, null, 2)}\n`);
+
+  const applied = parseSuccessfulJsonl(await run(executable, [
+    "apply",
+    completed.run_id,
+    "--approve",
+    completed.receipt_sha256,
+    "--project",
+    projectRoot,
+  ], { cwd: installRoot, env: process.env }), "apply");
+  assert.equal(applied.lifecycle_state, "applied");
+  assert.deepEqual(applied.changed_paths, [targetPath]);
+  assert.equal(await readFile(join(projectRoot, targetPath), "utf8"), candidateSource);
 });

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve, sep } from "node:path";
-import { runSpringVerifier } from "../adapters/spring-verifier.js";
 import { createCodexExecutor } from "../adapters/codex-executor.js";
+import { createManifestVerifier } from "../adapters/manifest-verifier.js";
 import { applyEvidenceBundle } from "../core/apply.js";
 import { readEvidenceBundle } from "../core/evidence.js";
 import {
@@ -19,6 +19,7 @@ import {
 import { validateCodexTaskInput } from "../contracts/codex-executor.js";
 import { canonicalJSONLine } from "../core/canonical-json.js";
 import { readRegularFileNoFollow } from "../core/snapshot.js";
+import { readFrozenRunInputs } from "../core/run-artifacts.js";
 
 const INIT_CONFIG_FILE = "config.jsonl";
 
@@ -231,16 +232,35 @@ function dependencies(options) {
   return {
     applyEvidenceBundle: options.applyEvidenceBundle ?? applyEvidenceBundle,
     createCodexExecutor: options.createCodexExecutor ?? createCodexExecutor,
+    createManifestVerifier:
+      options.createManifestVerifier ?? createManifestVerifier,
     readEvidenceBundle: options.readEvidenceBundle ?? readEvidenceBundle,
     readRunState: options.readRunState ?? readRunState,
+    readFrozenRunInputs:
+      options.readFrozenRunInputs ?? readFrozenRunInputs,
     runDeterministicHarness:
       options.runDeterministicHarness ?? runDeterministicHarness,
     runHarness: options.runHarness ?? runHarness,
     runIdFactory: options.runIdFactory ?? (() => `run-${randomUUID()}`),
-    verifyAppliedProject: options.verifyAppliedProject ?? (async (projectRoot) => {
-      const result = await runSpringVerifier({ fixtureRoot: projectRoot });
-      return result.status === "passed";
-    }),
+    verifyAppliedProject: options.verifyAppliedProject ?? null,
+  };
+}
+
+async function applyVerifierForStoredRun(stateDir, runId, state, deps) {
+  if (deps.verifyAppliedProject !== null) {
+    return ({ projectRoot }) => deps.verifyAppliedProject(projectRoot);
+  }
+  const frozen = await deps.readFrozenRunInputs(stateDir, runId);
+  if (frozen.manifest.sha256 !== state.manifest_sha256) {
+    throw safetyRefusal("Frozen manifest digest does not match persisted run state.", {
+      expected_sha256: state.manifest_sha256 ?? null,
+      actual_sha256: frozen.manifest.sha256,
+    });
+  }
+  const verify = deps.createManifestVerifier(frozen.manifest.value);
+  return async ({ projectRoot }) => {
+    const result = await verify({ workspaceRoot: projectRoot });
+    return result?.status === "passed";
   };
 }
 
@@ -309,12 +329,18 @@ export async function executeCliCommand(parsed, options = {}) {
         run_id: parsed.runId,
       });
     }
+    const verifier = await applyVerifierForStoredRun(
+      paths.stateDir,
+      parsed.runId,
+      stored.state,
+      deps,
+    );
     const applied = await deps.applyEvidenceBundle({
       projectRoot: paths.projectRoot,
       stateDir: paths.stateDir,
       runId: parsed.runId,
       approvalSha256: parsed.approve,
-      verifier: ({ projectRoot }) => deps.verifyAppliedProject(projectRoot),
+      verifier,
     });
     return Object.freeze({
       run_id: applied.state.run_id,

@@ -87,6 +87,14 @@ test("contracts round-trip schema version and freeze persisted fields", () => {
       executor_kinds: ["deterministic", "codex"],
       input_schema_ref: "fixture.json",
       policy_rules: { rule: "deadline" },
+      verifier: {
+        schema_version,
+        adapter_id: "command-verifier",
+        command: "node",
+        args: ["--test"],
+        timeout_ms: 30_000,
+        max_output_bytes: 1_048_576,
+      },
     }),
     validateWorkflowPlan({
       schema_version,
@@ -132,6 +140,7 @@ test("contracts round-trip schema version and freeze persisted fields", () => {
     assert.deepEqual(contract.schema_version, schema_version);
     assertFrozenTree(contract);
   }
+  assert.equal(contracts[0].verifier.adapter_id, "command-verifier");
 });
 
 test("required fields, enums, and schema major are validated", () => {

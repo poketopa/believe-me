@@ -259,3 +259,85 @@ test("apply delegates approval and verifier without changing CLI contract", asyn
   assert.equal(observed.projectRoot, projectRoot);
   assert.deepEqual(result.changed_paths, ["src/app.txt"]);
 });
+
+test("apply resolves verification from the digest-bound frozen manifest", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const manifest = {
+    schema_version: { major: 1 },
+    manifest_id: "node-policy",
+    verifier: { adapter_id: "command-verifier" },
+  };
+  let readBinding;
+  let selectedManifest;
+  let verifiedRoot;
+
+  const result = await executeCliCommand({
+    command: "apply",
+    runId: "run-1",
+    approve: hash,
+    project: projectRoot,
+  }, {
+    readRunState: async () => ({
+      state: {
+        run_id: "run-1",
+        lifecycle_state: "receipted",
+        manifest_sha256: hash,
+      },
+    }),
+    async readFrozenRunInputs(stateDir, runId) {
+      readBinding = { stateDir, runId };
+      return { manifest: { value: manifest, sha256: hash } };
+    },
+    createManifestVerifier(value) {
+      selectedManifest = value;
+      return async ({ workspaceRoot }) => {
+        verifiedRoot = workspaceRoot;
+        return { status: "passed" };
+      };
+    },
+    async applyEvidenceBundle(options) {
+      assert.equal(await options.verifier({ projectRoot }), true);
+      return {
+        state: { run_id: "run-1", lifecycle_state: "applied" },
+        receipt_sha256: hash,
+        changed_paths: ["src/app.txt"],
+      };
+    },
+  });
+
+  assert.deepEqual(readBinding, {
+    stateDir: join(projectRoot, ".harness"),
+    runId: "run-1",
+  });
+  assert.equal(selectedManifest, manifest);
+  assert.equal(verifiedRoot, projectRoot);
+  assert.equal(result.lifecycle_state, "applied");
+});
+
+test("apply refuses a frozen manifest not bound by persisted state", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  let applied = false;
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "apply",
+      runId: "run-1",
+      approve: hash,
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({
+        state: {
+          run_id: "run-1",
+          lifecycle_state: "receipted",
+          manifest_sha256: hash,
+        },
+      }),
+      readFrozenRunInputs: async () => ({
+        manifest: { value: {}, sha256: "b".repeat(64) },
+      }),
+      applyEvidenceBundle: async () => { applied = true; },
+    }),
+    (error) => error.code === "safety_refusal" && error.exitCode === 3,
+  );
+  assert.equal(applied, false);
+});

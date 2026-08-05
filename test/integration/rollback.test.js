@@ -122,6 +122,40 @@ test("verifier throw rolls back originals and marks run rolled_back", async () =
   assert.equal(state.lifecycle_state, "rolled_back");
 });
 
+test("verifier source drift stays isolated and rolls back the candidate", async () => {
+  const setup = await fixture([candidateChange("src/one.txt", "candidate")]);
+  let verifierRoot;
+
+  await assert.rejects(
+    () =>
+      applyEvidenceBundle({
+        projectRoot: setup.projectRoot,
+        stateDir: setup.stateDir,
+        runId: "run-1",
+        approvalSha256: setup.receiptSha256,
+        verifier: async ({ projectRoot }) => {
+          verifierRoot = projectRoot;
+          assert.notEqual(projectRoot, setup.projectRoot);
+          await writeFile(join(projectRoot, "src", "two.txt"), "verifier drift");
+          return true;
+        },
+      }),
+    (error) =>
+      error.code === "verification_failed" &&
+      error.exitCode === 5 &&
+      /mutated or invalidated/u.test(error.message),
+  );
+
+  assert.equal(await readFile(join(setup.projectRoot, "src", "one.txt"), "utf8"), "one");
+  assert.equal(await readFile(join(setup.projectRoot, "src", "two.txt"), "utf8"), "two");
+  await assert.rejects(
+    () => stat(verifierRoot),
+    (error) => error.code === "ENOENT",
+  );
+  const { state } = await readRunState(setup.stateDir, "run-1");
+  assert.equal(state.lifecycle_state, "rolled_back");
+});
+
 test("multi-file apply leaves no partial candidate bytes after verifier failure", async () => {
   const setup = await fixture([
     candidateChange("src/one.txt", "candidate-one"),

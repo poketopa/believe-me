@@ -44,14 +44,18 @@ async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-async function createRunSetup({ runId = "run-1", change = candidate("src/app.txt", "candidate") } = {}) {
+async function createRunSetup({
+  runId = "run-1",
+  change = candidate("src/app.txt", "candidate"),
+  verifier,
+} = {}) {
   const projectRoot = await mkdtemp(join(tmpdir(), "vah-run-project-"));
   const controlRoot = await mkdtemp(join(tmpdir(), "vah-run-control-"));
   await mkdir(join(projectRoot, "src"));
   await writeFile(join(projectRoot, "src", "app.txt"), "source");
   const manifestPath = join(controlRoot, "skill-manifest.json");
   const inputPath = join(controlRoot, "input.json");
-  await writeJson(manifestPath, {
+  const manifest = {
     schema_version: { major: 1 },
     manifest_id: "deterministic-test",
     name: "Deterministic test policy",
@@ -59,7 +63,11 @@ async function createRunSetup({ runId = "run-1", change = candidate("src/app.txt
     executor_kinds: ["deterministic"],
     input_schema_ref: "deterministic-executor-input/v1",
     policy_rules: { max_changes: 1 },
-  });
+  };
+  if (verifier !== undefined) {
+    manifest.verifier = verifier;
+  }
+  await writeJson(manifestPath, manifest);
   await writeJson(inputPath, { changes: [change] });
   const stateDir = join(projectRoot, ".harness");
   return {
@@ -293,6 +301,50 @@ test("resume restarts an interrupted executing run from the frozen input", async
   });
   assert.equal(resumed.state.lifecycle_state, "receipted");
   assert.equal(await readFile(join(setup.projectRoot, "src", "app.txt"), "utf8"), "source");
+});
+
+test("resume resolves the command verifier from the frozen manifest", async () => {
+  const setup = await createRunSetup({
+    verifier: {
+      schema_version: { major: 1 },
+      adapter_id: "command-verifier",
+      command: "node",
+      args: [
+        "--input-type=module",
+        "--eval",
+        "import { readFileSync } from 'node:fs'; if (readFileSync('src/app.txt', 'utf8') !== 'candidate') process.exit(7);",
+      ],
+      timeout_ms: 30_000,
+      max_output_bytes: 1_048_576,
+    },
+  });
+  await assert.rejects(
+    () => runDeterministicHarness({
+      runId: setup.runId,
+      runSpec: setup.runSpec,
+      issuedAt,
+      recordedAt,
+      onCheckpoint({ state }) {
+        if (state.lifecycle_state === "executing") {
+          throw new Error("interrupt before manifest-selected verification");
+        }
+      },
+    }),
+    /interrupt before manifest-selected verification/u,
+  );
+
+  const resumed = await resumeDeterministicHarness({
+    stateDir: setup.stateDir,
+    runId: setup.runId,
+    issuedAt,
+    recordedAt,
+  });
+  assert.equal(resumed.state.lifecycle_state, "receipted");
+  assert.equal(resumed.evidence.verification.adapter_id, "command-verifier");
+  assert.deepEqual(resumed.evidence.verification.argv.slice(0, 2), [
+    "node",
+    "--input-type=module",
+  ]);
 });
 
 test("resume refuses complete evidence that was never bound by executing state", async () => {
