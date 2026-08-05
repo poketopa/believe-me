@@ -1,36 +1,37 @@
 # Releasing
 
-This project has a reviewed release contract, but it is intentionally dormant.
-The current maximum claim is `dormant contract validated; publication blocked
-and unproven`.
+BelieveMe publishes reviewed releases through a release-only GitHub Actions
+workflow and npm Trusted Publishing. The first public release target is
+`@poketopa/believe-me@0.1.0`.
 
 ## Current State
 
-- `package.json` keeps `private: true`.
-- The finalized package name and development version are
-  `@poketopa/believe-me@0.0.0-development`.
+- `package.json`, `package-lock.json`, and the runtime product identity agree on
+  `@poketopa/believe-me@0.1.0`, with `private: false`.
 - `.github/workflows/publish.yml` listens only for a published GitHub Release,
-  but the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
-- No npm package, GitHub Release, release tag, public repository setting,
-  Trusted Publisher, or GitHub `npm` environment is created by this milestone.
+  and the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
+- The workflow publishes only after the protected `npm` environment authorizes
+  deployment and npm accepts the GitHub OIDC identity configured as the package
+  Trusted Publisher.
 - `THIRD_PARTY_NOTICES.md` records the durable owner-source redistribution grant
   for the three adapted components through
   [Issue #22](https://github.com/poketopa/believe-me/issues/22#issuecomment-5189562788).
 
 ## Local Contract Check
 
-These commands are safe in the dormant development state:
+Run both the ordinary checks and the exact release-mode contract:
 
 ```bash
 npm run release:check
+npm run release:check -- --tag v0.1.0 --publish
 npm run check
 npm test
 npm run pack:check
 ```
 
-`npm run release:check` must exit 0 with `mode:"development"`,
-`publishable:false`, and `publicationBlocked:true` while `private:true` remains
-set.
+The release-mode check must exit 0 with `mode:"publish"`, `publishable:true`,
+`publicationBlocked:false`, and a tag version matching all three metadata
+sources.
 
 ## Owner Activation Order
 
@@ -41,11 +42,12 @@ earlier step is done and reviewed.
    components. Issue #22 is the canonical confirmation.
 2. [x] Keep the finalized npm identity `@poketopa/believe-me` and owner scope
    `poketopa` consistent across package, runtime, and repository metadata.
-3. Reconfirm package-name availability immediately before the first public
+3. [x] Reconfirm package-name availability immediately before the first public
    release.
-4. Move the changelog entries for the first release from `Unreleased` to the
-   chosen version.
-5. Remove `private:true` only in the same reviewed release-metadata pull request.
+4. [x] Move the changelog entries for the first release from `Unreleased` to
+   `0.1.0`.
+5. [x] Set `private:false` only in the same reviewed release-metadata pull
+   request.
 6. Make the GitHub repository public.
 7. Enable required checks and branch/ruleset protection for `main`, plus a
    `v*` tag rule that prevents release-tag updates and deletion.
@@ -57,8 +59,8 @@ earlier step is done and reviewed.
    - workflow filename: `publish.yml`;
    - environment name: `npm`;
    - allowed action: `npm publish`.
-11. Verify that `package.json.repository.url` exactly matches the public GitHub
-   repository.
+11. [x] Verify that `package.json.repository.url` exactly matches the public
+    GitHub repository.
 12. Set repository variable `NPM_PUBLISH_ENABLED=true` only after the prior gates
    are visible and reviewed.
 
@@ -116,8 +118,7 @@ After the workflow succeeds, record:
 - npm integrity and provenance evidence;
 - clean-install smoke result.
 
-Future registry verification commands are templates. They are not executable in
-the current dormant state because no public package exists:
+Verify the published registry artifact with:
 
 ```bash
 npm view <package-name>@<version> name version dist.integrity provenance

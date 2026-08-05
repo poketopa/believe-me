@@ -3,7 +3,7 @@
 All notable changes are recorded here before they move into a versioned GitHub
 Release.
 
-## Unreleased
+## [0.1.0] - 2026-08-05
 
 ### Added
 
@@ -29,18 +29,10 @@ Release.
 
 ### Changed
 
-- Release governance now treats the public package name, repository visibility,
-  npm account/package setup, GitHub environment, Trusted Publisher settings,
-  `NPM_PUBLISH_ENABLED`, and `private:false` as owner-controlled activation
-  steps outside the current milestone.
+- Activated the public package metadata and guarded GitHub Release publication
+  contract for the first `@poketopa/believe-me` release.
 
-### Non-claims
+### Known limitations
 
-- No npm package has been published from this repository.
-- No GitHub Release, release tag, public repository conversion, npm Trusted
-  Publisher, npm environment approval, or registry-backed end-to-end publication
-  proof exists yet.
 - Current paired benchmark evidence is pilot evidence only; it does not prove
   generalized harness superiority.
-- Maximum current release claim: `dormant contract validated; publication
-  blocked and unproven`.

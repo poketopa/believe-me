@@ -2,5 +2,5 @@ export const product = Object.freeze({
   name: "@poketopa/believe-me",
   displayName: "BelieveMe",
   command: "believeme",
-  version: "0.0.0-development",
+  version: "0.1.0",
 });

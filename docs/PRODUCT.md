@@ -46,7 +46,7 @@ baseline remains unchanged until the separate approval/apply operation. The
 process-level CLI proof then rejects an incorrect receipt approval, accepts the
 bound receipt hash, reruns verification, and reaches `applied`.
 
-The stable pre-release JSONL CLI exposes `init`, `run`, `status`, `receipt`, and
+The stable v0.1 JSONL CLI exposes `init`, `run`, `status`, `receipt`, and
 `apply`, with one canonical record per command outcome and documented exit
 codes. Both executor kinds reuse the same state, receipt, explicit approval,
 atomic apply, and resume contracts.

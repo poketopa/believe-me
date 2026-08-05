@@ -1,7 +1,7 @@
-# Dormant publication contract. This workflow must remain gated until the
-# repository is public and npm Trusted Publishing is configured exactly as
+# Guarded publication contract. This workflow remains release-only and requires
+# the repository variable, protected environment, and npm Trusted Publisher
 # documented in docs/RELEASING.md.
-name: Dormant npm publish contract
+name: Publish npm release
 
 "on":
   release:
