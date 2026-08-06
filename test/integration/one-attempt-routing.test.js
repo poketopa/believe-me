@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { executeCliCommand } from "../../src/cli/commands.js";
 import {
+  createProjectSnapshot,
   createOneAttemptRoutedExecutor,
   readEvidenceBundle,
   readFrozenRunInputs,
@@ -12,6 +14,8 @@ import {
   resumeHarness,
   runOneAttemptRoutedHarness,
   selectExecutionRoute,
+  sha256CanonicalJSON,
+  sha256CanonicalJSONLine,
   sha256Hex,
 } from "../../src/index.js";
 
@@ -84,6 +88,205 @@ function adapterEntry(modelId, reasoningEffort, observed) {
     },
   };
 }
+
+const digest = (value) => sha256Hex(Buffer.from(value, "utf8"));
+
+function contextPack(sourceSnapshotSha256) {
+  const bytes = Buffer.from("export const value = 1;\n", "utf8");
+  const policy = {
+    max_files: 1,
+    max_excerpts: 1,
+    max_total_bytes: 512,
+    max_file_bytes: 512,
+    max_source_file_bytes: 4096,
+  };
+  return {
+    schema_version: { major: 1 },
+    source_snapshot_sha256: sourceSnapshotSha256,
+    task_sha256: digest("routed-launch-task"),
+    policy_sha256: sha256CanonicalJSON(policy),
+    policy,
+    selection_status: "matched",
+    fallback_reason: null,
+    truncated: false,
+    truncation_reasons: [],
+    omission_counts: {
+      binary: 0,
+      empty: 0,
+      excluded_path: 0,
+      oversized: 0,
+      secret_content: 0,
+    },
+    total_files: 1,
+    total_excerpts: 1,
+    total_bytes: bytes.byteLength,
+    entries: [{
+      path: "src/app.txt",
+      source_sha256: digest("routed-launch-source"),
+      reasons: ["text_match"],
+      excerpts: [{
+        start_byte: 0,
+        end_byte: bytes.byteLength,
+        content_base64: bytes.toString("base64"),
+        sha256: sha256Hex(bytes),
+        reasons: ["text_match"],
+      }],
+    }],
+  };
+}
+
+function codexManifest() {
+  return {
+    schema_version: { major: 1 },
+    manifest_id: "routed-launch",
+    name: "Routed launch fixture",
+    policy_id: "routed-launch-policy",
+    executor_kinds: ["codex"],
+    input_schema_ref: "codex-task/v1",
+    policy_rules: {},
+    verifier: {
+      schema_version: { major: 1 },
+      adapter_id: "command-verifier",
+      command: "node",
+      args: ["--eval", "process.exit(0)"],
+      timeout_ms: 10_000,
+      max_output_bytes: 1024,
+    },
+  };
+}
+
+function codexPolicy() {
+  return {
+    schema_version: { major: 1 },
+    policy_id: "routed-launch-policy",
+    attempt_budget: 1,
+    token_budget: 1000,
+    wall_budget_ms: 30_000,
+    routes: [{
+      route_id: "codex-route",
+      reason: "initial",
+      adapter_id: "codex-cli",
+      model_id: "gpt-5.5",
+      reasoning_effort: "medium",
+      timeout_ms: 10_000,
+    }],
+  };
+}
+
+function adaptiveLaunch({
+  sessionId,
+  projectRoot,
+  stateDir,
+  sourceSnapshotSha256,
+  overrides = {},
+}) {
+  const pack = contextPack(sourceSnapshotSha256);
+  const manifest = codexManifest();
+  const input = {
+    task: "Change src/app.txt.",
+    allowed_paths: ["src/app.txt"],
+    context_pack: pack,
+  };
+  const policy = codexPolicy();
+  return {
+    schema_version: { major: 1 },
+    session_id: sessionId,
+    project_path: projectRoot,
+    state_dir: stateDir,
+    skill_manifest: manifest,
+    skill_manifest_sha256: sha256CanonicalJSONLine(manifest),
+    task_input: input,
+    task_input_sha256: sha256CanonicalJSON(input),
+    policy,
+    policy_sha256: sha256CanonicalJSON(policy),
+    context_pack: pack,
+    context_pack_sha256: sha256CanonicalJSON(pack),
+    risk_tier: "low",
+    transient_infra_retry_codes: [],
+    adapter_id: "codex-cli",
+    ...overrides,
+  };
+}
+
+test("CLI run and idempotent resume compose the real adaptive and routed engines", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "adaptive-cli-run-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "adaptive-cli-run-control-"));
+  const stateDir = join(projectRoot, ".harness");
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/app.txt"), "source\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const launch = adaptiveLaunch({
+    sessionId: "session-cli-real",
+    projectRoot,
+    stateDir,
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+  });
+  const manifestPath = join(controlRoot, "manifest.json");
+  const inputPath = join(controlRoot, "input.json");
+  const policyPath = join(controlRoot, "policy.json");
+  const contextPath = join(controlRoot, "context.json");
+  await writeFile(manifestPath, `${JSON.stringify(launch.skill_manifest)}\n`);
+  await writeFile(inputPath, `${JSON.stringify(launch.task_input)}\n`);
+  await writeFile(policyPath, `${JSON.stringify(launch.policy)}\n`);
+  await writeFile(contextPath, `${JSON.stringify(launch.context_pack)}\n`);
+  let executorCalls = 0;
+  const createAdaptiveCodexRegistry = () => ({
+    "codex-cli": {
+      executor_kind: "codex",
+      model_ids: ["gpt-5.5"],
+      reasoning_efforts: ["medium"],
+      executor_input_validator: (value) => value,
+      create_executor: () => async ({ workspaceRoot, input }) => {
+        executorCalls += 1;
+        const bytes = Buffer.from("candidate\n", "utf8");
+        await writeFile(join(workspaceRoot, "src/app.txt"), bytes);
+        return {
+          schema_version: { major: 1 },
+          run_id: input.run_id,
+          executor_kind: "codex",
+          status: "completed",
+          changes: [{
+            path: "src/app.txt",
+            content_base64: bytes.toString("base64"),
+            sha256: sha256Hex(bytes),
+          }],
+        };
+      },
+    },
+  });
+
+  const completed = await executeCliCommand({
+    command: "run-session",
+    runId: "session-cli-real",
+    project: projectRoot,
+    stateDir,
+    skill: manifestPath,
+    input: inputPath,
+    policy: policyPath,
+    context: contextPath,
+    riskTier: "low",
+  }, { createAdaptiveCodexRegistry });
+  const reviewed = await executeCliCommand({
+    command: "review-session",
+    runId: "session-cli-real",
+    project: projectRoot,
+    stateDir,
+  });
+  const resumed = await executeCliCommand({
+    command: "resume-session",
+    runId: "session-cli-real",
+    project: projectRoot,
+    stateDir,
+  }, { createAdaptiveCodexRegistry });
+
+  assert.equal(executorCalls, 1);
+  assert.equal(completed.terminal_reason, "winner");
+  assert.equal(completed.winner_run_id, "session-cli-real-child-1");
+  assert.equal(reviewed.review_status, "adaptive_session_verified");
+  assert.equal(reviewed.winner.child_run_id, completed.winner_run_id);
+  assert.deepEqual(resumed, completed);
+  assert.equal(await readFile(join(projectRoot, "src/app.txt"), "utf8"), "source\n");
+});
 
 test("Node and Spring fixtures use one injected route without mutating source", async () => {
   const cases = [
@@ -282,6 +485,125 @@ test("actual one-attempt run persists route evidence and stops before apply", as
   assert.deepEqual(frozen.workflowPlan.value.route_selection, completed.route_selection);
   assert.deepEqual(evidence.result.route_selection, completed.route_selection);
   assert.equal(evidence.result.changes[0].path, targetPath);
+});
+
+test("routed harness binds child records to the adaptive launch", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "routed-launch-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "routed-launch-control-"));
+  const stateDir = join(projectRoot, ".harness");
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/app.txt"), "source\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const launch = adaptiveLaunch({
+    sessionId: "session-routed-launch",
+    projectRoot,
+    stateDir,
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+  });
+  const manifestPath = join(controlRoot, "manifest.json");
+  const inputPath = join(controlRoot, "input.json");
+  await writeFile(manifestPath, `${JSON.stringify(launch.skill_manifest, null, 2)}\n`);
+  await writeFile(inputPath, `${JSON.stringify(launch.task_input, null, 2)}\n`);
+  let executorCalls = 0;
+  const completed = await runOneAttemptRoutedHarness({
+    runId: "session-routed-launch-child-1",
+    runSpec: {
+      schema_version: { major: 1 },
+      project_path: projectRoot,
+      state_dir: stateDir,
+      skill_manifest_path: manifestPath,
+      input_path: inputPath,
+      executor_kind: "codex",
+    },
+    policy: launch.policy,
+    riskTier: launch.risk_tier,
+    routeReason: "initial",
+    adaptiveLaunch: launch,
+    adapterRegistry: {
+      "codex-cli": {
+        executor_kind: "codex",
+        model_ids: ["gpt-5.5"],
+        reasoning_efforts: ["medium"],
+        executor_input_validator: (value) => value,
+        create_executor: () => async ({ workspaceRoot, input }) => {
+          executorCalls += 1;
+          assert.equal(input.input.task, launch.task_input.task);
+          const bytes = Buffer.from("candidate\n", "utf8");
+          await writeFile(join(workspaceRoot, "src/app.txt"), bytes);
+          return {
+            schema_version: { major: 1 },
+            run_id: input.run_id,
+            executor_kind: "codex",
+            status: "completed",
+            changes: [{
+              path: "src/app.txt",
+              content_base64: bytes.toString("base64"),
+              sha256: sha256Hex(bytes),
+            }],
+          };
+        },
+      },
+    },
+  });
+
+  assert.equal(executorCalls, 1);
+  assert.equal(completed.route_selection.policy_sha256, launch.policy_sha256);
+  assert.equal(completed.route_selection.features.context_bytes, launch.context_pack.total_bytes);
+  assert.equal(completed.state.source_snapshot_sha256, launch.context_pack.source_snapshot_sha256);
+  const frozen = await readFrozenRunInputs(stateDir, "session-routed-launch-child-1");
+  assert.equal(frozen.manifest.sha256, launch.skill_manifest_sha256);
+  assert.equal(frozen.runSpec.value.project_path, launch.project_path);
+  assert.equal(frozen.runSpec.value.state_dir, launch.state_dir);
+});
+
+test("routed harness rejects adaptive launch drift before child execution", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "routed-launch-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "routed-launch-control-"));
+  const stateDir = join(projectRoot, ".harness");
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/app.txt"), "source\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const launch = adaptiveLaunch({
+    sessionId: "session-routed-drift",
+    projectRoot,
+    stateDir,
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+    overrides: { project_path: join(projectRoot, "other") },
+  });
+  const manifestPath = join(controlRoot, "manifest.json");
+  const inputPath = join(controlRoot, "input.json");
+  await writeFile(manifestPath, `${JSON.stringify(codexManifest(), null, 2)}\n`);
+  await writeFile(inputPath, `${JSON.stringify(launch.task_input, null, 2)}\n`);
+  let executorCalls = 0;
+
+  await assert.rejects(() => runOneAttemptRoutedHarness({
+      runId: "session-routed-drift-child-1",
+      runSpec: {
+        schema_version: { major: 1 },
+        project_path: projectRoot,
+        state_dir: stateDir,
+        skill_manifest_path: manifestPath,
+        input_path: inputPath,
+        executor_kind: "codex",
+      },
+      policy: codexPolicy(),
+      riskTier: "low",
+      routeReason: "initial",
+      adaptiveLaunch: launch,
+      adapterRegistry: {
+        "codex-cli": {
+          executor_kind: "codex",
+          model_ids: ["gpt-5.5"],
+          reasoning_efforts: ["medium"],
+          executor_input_validator: (value) => value,
+          create_executor: () => async () => {
+            executorCalls += 1;
+            throw new Error("drifted launch must fail before child execution");
+          },
+        },
+      },
+    }));
+  assert.equal(executorCalls, 0);
 });
 
 test("routed runs reject caller-supplied route features", async () => {

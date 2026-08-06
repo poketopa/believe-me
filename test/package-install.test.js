@@ -104,8 +104,26 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(help.code, 0, help.stderr);
   assert.match(help.stdout, /believeme export-bundle/);
   assert.match(help.stdout, /believeme verify-bundle/);
+  assert.match(help.stdout, /believeme run-session/);
+  assert.match(help.stdout, /believeme resume-session/);
   assert.match(help.stdout, /believeme status-session/);
   assert.match(help.stdout, /believeme review-session/);
+  const badResumeUsage = await run(executable, [
+    "resume-session",
+    "installed-session-read",
+    "--policy",
+    "policy.json",
+  ], {
+    cwd: join(installRoot, "project"),
+    env: process.env,
+  });
+  assert.equal(badResumeUsage.signal, null);
+  assert.equal(badResumeUsage.code, 2);
+  assert.equal(badResumeUsage.stdout, "");
+  const usagePayload = JSON.parse(badResumeUsage.stderr);
+  assert.equal(usagePayload.command, "resume-session");
+  assert.equal(usagePayload.status, "error");
+  assert.equal(usagePayload.error.code, "usage_error");
 
   const installedProject = join(installRoot, "project");
   const installedState = join(installedProject, ".harness");

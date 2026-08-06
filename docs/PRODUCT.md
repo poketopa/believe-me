@@ -47,10 +47,10 @@ process-level CLI proof then rejects an incorrect receipt approval, accepts the
 bound receipt hash, reruns verification, and reaches `applied`.
 
 The JSONL CLI exposes `init`, `run`, `status`, `receipt`, `review`,
-`status-session`, `review-session`, `export-bundle`, `verify-bundle`, and
-`apply`, with one canonical record per command outcome and documented exit
-codes. Both executor kinds reuse the same state, receipt, explicit approval,
-atomic apply, and resume contracts.
+`run-session`, `resume-session`, `status-session`, `review-session`,
+`export-bundle`, `verify-bundle`, and `apply`, with one canonical record per
+command outcome and documented exit codes. Both executor kinds reuse the same
+state, receipt, explicit approval, atomic apply, and resume contracts.
 
 `review` is the read-only approval companion to `receipt`: it checks the stored
 receipt binding again and surfaces only the validated evidence summary, not raw
@@ -75,14 +75,15 @@ a completed session, validates its input/attempt/final bindings, and validates
 the winning child receipt when present. The result is stored evidence review,
 not provider identity, freshness, attestation, or independent re-execution.
 
-The adaptive CLI launch authority is staged separately from execution commands.
 `AdaptiveSessionLaunch` is an internal canonical JSONL/digest record that binds
 the project and state paths, skill manifest, Codex input, execution policy,
 ContextPack, risk tier, retry allowlist, and the fixed `codex-cli` adapter before
 derived adaptive input or child claims can exist. Its policy is also the sole
 source of admitted model and reasoning aliases for Codex transport composition.
-Legacy library sessions remain compatible, while future CLI resume requires an
-exact launch binding. No session run or resume command is exposed by this stage.
+`run-session` publishes that authority before execution and never applies a
+candidate. `resume-session` accepts no authority overrides and uses the frozen
+launch for both claimed-child resume and any authorized later retry. Legacy
+library sessions remain readable and applicable but are not CLI-resumable.
 
 ## Verifier selection
 

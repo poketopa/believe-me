@@ -17,6 +17,8 @@ export function cliHelpText() {
     `  ${product.command} review <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} status-session <session-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} review-session <session-id> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} run-session <session-id> --project <path> --skill <path> --input <path> --policy <path> --context <path> --risk-tier <low|medium|high> [--retry-codes <path>] [--state-dir <path>]`,
+    `  ${product.command} resume-session <session-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} export-bundle <run-id> --output <file> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} verify-bundle --bundle <file>`,
     `  ${product.command} apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]`,

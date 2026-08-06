@@ -21,8 +21,10 @@ Release.
   review without execution, resume, apply, or filesystem repair.
 - An internal, canonical `AdaptiveSessionLaunch` authority and fixed
   `codex-cli` route composition boundary that freeze launch inputs and exact
-  model/reasoning selection before future CLI session execution. No new
-  run/resume command is exposed in this change.
+  model/reasoning selection for CLI session execution.
+- Opt-in `run-session` and `resume-session` commands that compose the frozen
+  launch authority with isolated routed child runs, preserve claimed child
+  identity on resume, and leave explicit winner apply as a separate command.
 
 ## [0.2.0] - 2026-08-06
 

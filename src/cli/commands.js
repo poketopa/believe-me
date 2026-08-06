@@ -19,6 +19,8 @@ import {
 import {
   runDeterministicHarness,
   runHarness,
+  runOneAttemptRoutedHarness,
+  resumeHarness,
 } from "../core/run-orchestrator.js";
 import { readRunState } from "../core/state-store.js";
 import {
@@ -34,8 +36,16 @@ import { readFrozenRunInputs } from "../core/run-artifacts.js";
 import {
   readAdaptiveSession,
   readAdaptiveSessionStatus,
+  resumeAdaptiveSession,
   resolveAdaptiveSessionWinner,
+  runAdaptiveSession,
 } from "../core/adaptive-session.js";
+import { readAdaptiveSessionLaunchForResume } from "../core/adaptive-session-launch.js";
+import {
+  buildAdaptiveSessionLaunch,
+  createAdaptiveSessionRunners,
+} from "../core/adaptive-session-runner.js";
+import { createAdaptiveCodexRegistry } from "../adapters/adaptive-codex-registry.js";
 
 const INIT_CONFIG_FILE = "config.jsonl";
 function resolveProjectPath(cwd, project = ".") {
@@ -102,7 +112,7 @@ async function ensureRealDirectory(path) {
   }
 }
 
-async function ensureStateDirectory(projectRoot, stateDir) {
+function assertStateDirectoryLocation(projectRoot, stateDir) {
   if (stateDir === projectRoot) {
     throw safetyRefusal("State directory must not be the project root.");
   }
@@ -119,6 +129,18 @@ async function ensureStateDirectory(projectRoot, stateDir) {
         { state_dir: stateDir },
       );
     }
+  }
+}
+
+async function ensureStateDirectory(projectRoot, stateDir) {
+  assertStateDirectoryLocation(projectRoot, stateDir);
+  const stateRelative = relative(projectRoot, stateDir);
+  const insideProject =
+    stateRelative !== "" &&
+    stateRelative !== ".." &&
+    !stateRelative.startsWith(`..${sep}`);
+  if (insideProject) {
+    const segments = stateRelative.split(sep);
     let current = projectRoot;
     for (const segment of segments) {
       current = join(current, segment);
@@ -253,6 +275,19 @@ async function readReviewCommand(stateDir, runId, dependencies) {
   );
 }
 
+function adaptiveSessionRunSummary(completed, stateDir) {
+  const winner = completed.session.attempts.find((attempt) => attempt.winner) ?? null;
+  return Object.freeze({
+    session_id: completed.session.session_id,
+    terminal_reason: completed.session.terminal_reason,
+    attempt_count: completed.session.attempts.length,
+    winner_run_id: winner?.child_run_id ?? null,
+    winner_receipt_sha256: winner?.child_run_evidence_sha256 ?? null,
+    session_receipt_sha256: completed.session_receipt_sha256,
+    state_dir: stateDir,
+  });
+}
+
 function dependencies(options) {
   return {
     applyEvidenceBundle: options.applyEvidenceBundle ?? applyEvidenceBundle,
@@ -271,9 +306,24 @@ function dependencies(options) {
       options.readAdaptiveSession ?? readAdaptiveSession,
     readAdaptiveSessionStatus:
       options.readAdaptiveSessionStatus ?? readAdaptiveSessionStatus,
+    readAdaptiveSessionLaunchForResume:
+      options.readAdaptiveSessionLaunchForResume ??
+        readAdaptiveSessionLaunchForResume,
+    buildAdaptiveSessionLaunch:
+      options.buildAdaptiveSessionLaunch ?? buildAdaptiveSessionLaunch,
+    createAdaptiveCodexRegistry:
+      options.createAdaptiveCodexRegistry ?? createAdaptiveCodexRegistry,
     runDeterministicHarness:
       options.runDeterministicHarness ?? runDeterministicHarness,
     runHarness: options.runHarness ?? runHarness,
+    runOneAttemptRoutedHarness:
+      options.runOneAttemptRoutedHarness ?? runOneAttemptRoutedHarness,
+    resumeHarness: options.resumeHarness ?? resumeHarness,
+    runAdaptiveSession:
+      options.runAdaptiveSession ?? runAdaptiveSession,
+    resumeAdaptiveSession:
+      options.resumeAdaptiveSession ?? resumeAdaptiveSession,
+    now: options.now ?? Date.now,
     runIdFactory: options.runIdFactory ?? (() => `run-${randomUUID()}`),
     verifyAppliedProject: options.verifyAppliedProject ?? null,
     writePortableEvidenceBundle:
@@ -415,6 +465,71 @@ export async function executeCliCommand(parsed, options = {}) {
       attempts: Object.freeze(attempts),
       winner: winnerSummary,
     });
+  }
+
+  if (parsed.command === "run-session") {
+    await assertProjectDirectory(paths.projectRoot);
+    assertStateDirectoryLocation(paths.projectRoot, paths.stateDir);
+    const launch = await deps.buildAdaptiveSessionLaunch({
+      sessionId: parsed.runId,
+      projectRoot: paths.projectRoot,
+      stateDir: paths.stateDir,
+      skillPath: isAbsolute(parsed.skill)
+        ? parsed.skill
+        : resolve(paths.projectRoot, parsed.skill),
+      inputPath: isAbsolute(parsed.input)
+        ? parsed.input
+        : resolve(paths.projectRoot, parsed.input),
+      policyPath: isAbsolute(parsed.policy)
+        ? parsed.policy
+        : resolve(paths.projectRoot, parsed.policy),
+      contextPath: isAbsolute(parsed.context)
+        ? parsed.context
+        : resolve(paths.projectRoot, parsed.context),
+      riskTier: parsed.riskTier,
+      retryCodesPath: parsed.retryCodes === undefined
+        ? undefined
+        : isAbsolute(parsed.retryCodes)
+          ? parsed.retryCodes
+          : resolve(paths.projectRoot, parsed.retryCodes),
+    });
+    await ensureStateDirectory(paths.projectRoot, paths.stateDir);
+    const runners = createAdaptiveSessionRunners(launch, deps);
+    const completed = await deps.runAdaptiveSession({
+      sessionId: parsed.runId,
+      stateDir: paths.stateDir,
+      policy: launch.policy,
+      contextPack: launch.context_pack,
+      transientInfraRetryCodes: launch.transient_infra_retry_codes,
+      launch,
+      runAttempt: runners.runAttempt,
+      resumeAttempt: runners.resumeAttempt,
+    });
+    return adaptiveSessionRunSummary(completed, paths.stateDir);
+  }
+
+  if (parsed.command === "resume-session") {
+    const storedLaunch = await deps.readAdaptiveSessionLaunchForResume(
+      paths.stateDir,
+      parsed.runId,
+    );
+    if (
+      parsed.project !== undefined &&
+      storedLaunch.launch.project_path !== paths.projectRoot
+    ) {
+      throw safetyRefusal("Resume project does not match the frozen launch contract.", {
+        expected_project_path: storedLaunch.launch.project_path,
+        actual_project_path: paths.projectRoot,
+      });
+    }
+    const runners = createAdaptiveSessionRunners(storedLaunch.launch, deps);
+    const completed = await deps.resumeAdaptiveSession({
+      sessionId: parsed.runId,
+      stateDir: paths.stateDir,
+      runAttempt: runners.runAttempt,
+      resumeAttempt: runners.resumeAttempt,
+    });
+    return adaptiveSessionRunSummary(completed, paths.stateDir);
   }
 
   if (parsed.command === "export-bundle") {

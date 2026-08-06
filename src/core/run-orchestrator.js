@@ -5,6 +5,12 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
+  assertChildExecutorInputMatchesLaunch,
+  assertChildManifestMatchesLaunch,
+  assertRouteSelectionMatchesLaunch,
+  validateAdaptiveSessionLaunch,
+} from "../contracts/adaptive-session-launch.js";
+import {
   HarnessContractError,
   infraError,
   notFound,
@@ -395,6 +401,34 @@ function assertRouteSelectionMatchesWorkflow(workflowPlan, result) {
   }
 }
 
+function validatedAdaptiveLaunch(value) {
+  return value === undefined ? null : validateAdaptiveSessionLaunch(value);
+}
+
+function assertRunContextMatchesAdaptiveLaunch({
+  launch,
+  projectRoot,
+  stateDir,
+  sourceSnapshot,
+  manifest,
+  executorInput,
+  routeSelection,
+}) {
+  if (launch === null) return;
+  if (launch.project_path !== projectRoot || launch.state_dir !== stateDir) {
+    throw safetyRefusal("Adaptive launch paths do not match child run paths.");
+  }
+  if (launch.context_pack.source_snapshot_sha256 !== sourceSnapshot.sha256) {
+    throw safetyRefusal("Adaptive launch snapshot does not match child run snapshot.", {
+      expected_sha256: launch.context_pack.source_snapshot_sha256,
+      actual_sha256: sourceSnapshot.sha256,
+    });
+  }
+  assertChildManifestMatchesLaunch(manifest, launch);
+  assertChildExecutorInputMatchesLaunch(executorInput, launch);
+  assertRouteSelectionMatchesLaunch(routeSelection, launch);
+}
+
 function assertEvidenceMatchesState(state, evidence, workflowPlan) {
   if (evidence.receipt_sha256 !== state.receipt_sha256 && state.receipt_sha256) {
     throw safetyRefusal("Evidence receipt hash does not match run state.");
@@ -701,17 +735,22 @@ export async function runHarness(options = {}) {
   if (options === null || typeof options !== "object" || Array.isArray(options)) {
     throw usageError("Run options must be an object.");
   }
+  const adaptiveLaunch = validatedAdaptiveLaunch(options.adaptiveLaunch);
   const runId = validateRunId(options.runId);
   const rawSpec = validateRunSpec(options.runSpec);
 
   const projectRoot = await canonicalProjectRoot(rawSpec.project_path);
   const stateDir = await canonicalStateDir(projectRoot, rawSpec.state_dir);
   let runSpec = canonicalizeRunSpec(rawSpec, projectRoot, stateDir);
-  const manifest = validateSkillManifest(await readJsonInput(
-    runSpec.skill_manifest_path,
-    "Skill manifest",
-  ));
-  const rawInput = await readJsonInput(runSpec.input_path, "Executor input");
+  const manifest = adaptiveLaunch === null
+    ? validateSkillManifest(await readJsonInput(
+        runSpec.skill_manifest_path,
+        "Skill manifest",
+      ))
+    : adaptiveLaunch.skill_manifest;
+  const rawInput = adaptiveLaunch === null
+    ? await readJsonInput(runSpec.input_path, "Executor input")
+    : adaptiveLaunch.task_input;
   if (rawInput === null || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     throw usageError("Executor input must be an object.");
   }
@@ -798,6 +837,15 @@ export async function runHarness(options = {}) {
   if (workflowPlan.manifest_sha256 !== manifestSha256) {
     throw safetyRefusal("Compiled workflow plan manifest binding is inconsistent.");
   }
+  assertRunContextMatchesAdaptiveLaunch({
+    launch: adaptiveLaunch,
+    projectRoot,
+    stateDir,
+    sourceSnapshot,
+    manifest,
+    executorInput,
+    routeSelection,
+  });
 
   await createRunDirectory(stateDir, runId);
   await writeFrozenRunInputs({
@@ -884,6 +932,7 @@ export async function runOneAttemptRoutedHarness(options = {}) {
   return runHarness({
     runId: options.runId,
     runSpec: options.runSpec,
+    adaptiveLaunch: options.adaptiveLaunch,
     routeRequest: {
       policy: options.policy,
       riskTier: options.riskTier,
@@ -900,7 +949,17 @@ export async function resumeHarness(options = {}) {
   if (options === null || typeof options !== "object" || Array.isArray(options)) {
     throw usageError("Resume options must be an object.");
   }
+  const adaptiveLaunch = validatedAdaptiveLaunch(options.adaptiveLaunch);
   const context = await loadResumeContext(options);
+  assertRunContextMatchesAdaptiveLaunch({
+    launch: adaptiveLaunch,
+    projectRoot: context.inputs.runSpec.value.project_path,
+    stateDir: context.stateDir,
+    sourceSnapshot: context.currentSnapshot,
+    manifest: context.inputs.manifest.value,
+    executorInput: context.inputs.executorInput.value,
+    routeSelection: context.inputs.workflowPlan.value.route_selection,
+  });
   if (context.state.lifecycle_state === "receipted") {
     const evidence = await readEvidenceBundle(context.state.artifact_root);
     assertEvidenceMatchesState(

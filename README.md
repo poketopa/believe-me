@@ -48,8 +48,9 @@ skill / policy
 - deterministic verifier mutation calibration over independent Node and Spring tasks.
 
 The CLI surface is `init`, `run`, `status`, `receipt`, `review`,
-`status-session`, `review-session`, `export-bundle`, `verify-bundle`, `apply`,
-and the additive `apply-session` command for a verified adaptive-session winner.
+`run-session`, `resume-session`, `status-session`, `review-session`,
+`export-bundle`, `verify-bundle`, `apply`, and the additive `apply-session`
+command for a verified adaptive-session winner.
 
 ## Current proof
 
@@ -127,6 +128,14 @@ believeme run \
 believeme status <run-id> --project ./my-project
 believeme receipt <run-id> --project ./my-project
 believeme review <run-id> --project ./my-project
+believeme run-session <session-id> \
+  --project ./my-project \
+  --skill ./skill-manifest.json \
+  --input ./codex-task.json \
+  --policy ./adaptive-policy.json \
+  --context ./context-pack.json \
+  --risk-tier low
+believeme resume-session <session-id> --project ./my-project
 believeme status-session <session-id> --project ./my-project
 believeme review-session <session-id> --project ./my-project
 believeme export-bundle <run-id> \
@@ -228,15 +237,15 @@ stored content binding only: non-winning attempt hashes remain session-bound
 pointers, and neither command proves identity, freshness, attestation, or a new
 verifier execution.
 
-CLI-created adaptive execution is being introduced in separately reviewed
-stages. The internal launch boundary now freezes the canonical project/state
+CLI-created adaptive execution freezes the canonical project/state
 paths, skill manifest, Codex task input, execution policy, ContextPack, risk
 tier, retry allowlist, and `codex-cli` adapter before any adaptive child claim.
 The selected model and reasoning aliases are admitted only from that frozen
 policy and are passed to the existing Codex transport as exact configuration.
-This does not yet expose `run-session` or `resume-session`; existing
-library-created sessions without a launch binding remain readable and
-applicable.
+`run-session` never applies candidate changes. `resume-session` accepts no
+authority overrides and resumes a claimed child under its existing identity;
+legacy library-created sessions without a launch binding remain readable and
+applicable but are not CLI-resumable.
 
 `believeme export-bundle` writes the same validated stored evidence as one
 deterministic canonical JSONL file. The output contains candidate source bytes
