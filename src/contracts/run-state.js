@@ -31,6 +31,7 @@ export const RUN_STATE_REQUIRED_FIELDS = Object.freeze([
 ]);
 
 export const RUN_STATE_OPTIONAL_FIELDS = Object.freeze([
+  "hermetic_boundary_sha256",
   "receipt_sha256",
   "approval_sha256",
 ]);
@@ -42,6 +43,7 @@ export const RUN_STATE_IMMUTABLE_FIELDS = Object.freeze([
   "source_snapshot_sha256",
   "executor_kind",
   "artifact_root",
+  "hermetic_boundary_sha256",
 ]);
 
 export function validateRunState(value, options = {}) {

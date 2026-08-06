@@ -205,6 +205,7 @@ test("receipt rejects self-hash and run-state immutable fields are explicit", ()
     "source_snapshot_sha256",
     "executor_kind",
     "artifact_root",
+    "hermetic_boundary_sha256",
   ]);
   assert.deepEqual(LIFECYCLE_STATES, [
     "draft",

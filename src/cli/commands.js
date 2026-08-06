@@ -41,6 +41,7 @@ import {
   runAdaptiveSession,
 } from "../core/adaptive-session.js";
 import { readAdaptiveSessionLaunchForResume } from "../core/adaptive-session-launch.js";
+import { readBoundHermeticBoundary } from "../core/hermetic-boundary.js";
 import {
   buildAdaptiveSessionLaunch,
   createAdaptiveSessionRunners,
@@ -302,6 +303,8 @@ function dependencies(options) {
     readRunState: options.readRunState ?? readRunState,
     readFrozenRunInputs:
       options.readFrozenRunInputs ?? readFrozenRunInputs,
+    readBoundHermeticBoundary:
+      options.readBoundHermeticBoundary ?? readBoundHermeticBoundary,
     readAdaptiveSession:
       options.readAdaptiveSession ?? readAdaptiveSession,
     readAdaptiveSessionStatus:
@@ -333,6 +336,14 @@ function dependencies(options) {
 
 async function applyVerifierForStoredRun(stateDir, runId, state, deps) {
   if (deps.verifyAppliedProject !== null) {
+    if (state.hermetic_boundary_sha256 !== undefined) {
+      await deps.readBoundHermeticBoundary(
+        stateDir,
+        runId,
+        state.hermetic_boundary_sha256,
+      );
+      throw usageError("Hermetic apply does not accept an injected verifier.");
+    }
     return ({ projectRoot }) => deps.verifyAppliedProject(projectRoot);
   }
   const frozen = await deps.readFrozenRunInputs(stateDir, runId);
@@ -342,7 +353,17 @@ async function applyVerifierForStoredRun(stateDir, runId, state, deps) {
       actual_sha256: frozen.manifest.sha256,
     });
   }
-  const verify = deps.createManifestVerifier(frozen.manifest.value);
+  const storedBoundary = await deps.readBoundHermeticBoundary(
+    stateDir,
+    runId,
+    state.hermetic_boundary_sha256,
+  );
+  const verify = deps.createManifestVerifier(
+    frozen.manifest.value,
+    storedBoundary === null
+      ? undefined
+      : { hermeticBoundary: storedBoundary.boundary },
+  );
   return async ({ projectRoot }) => {
     const result = await verify({ workspaceRoot: projectRoot });
     return result?.status === "passed";

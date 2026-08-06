@@ -56,6 +56,14 @@ test("advanceRunState enforces valid transitions and immutable fields", () => {
       }),
     (error) => error.code === "safety_refusal" && error.exitCode === 3,
   );
+
+  assert.throws(
+    () => advanceRunState(planned, {
+      lifecycle_state: "executing",
+      hermetic_boundary_sha256: hash,
+    }),
+    (error) => error.code === "safety_refusal" && error.exitCode === 3,
+  );
 });
 
 test("receipt and approval guarded states require frozen hashes before advancing", () => {

@@ -3,6 +3,7 @@ import { runSpringVerifier } from "./spring-verifier.js";
 import { validateSkillManifest } from "../contracts/skill-manifest.js";
 import { usageError } from "../contracts/errors.js";
 import { verifierSpecFromManifest } from "../contracts/verifier.js";
+import { validateHermeticBoundary } from "../contracts/hermetic-boundary.js";
 
 function workspaceFromRequest(request) {
   const root = request?.workspaceRoot ?? request?.projectRoot;
@@ -18,6 +19,9 @@ export function createManifestVerifier(manifest, options = {}) {
   }
   const validatedManifest = validateSkillManifest(manifest);
   const spec = verifierSpecFromManifest(validatedManifest);
+  const hermeticBoundary = options.hermeticBoundary === undefined
+    ? undefined
+    : validateHermeticBoundary(options.hermeticBoundary);
   const commandRunner = options.runCommandVerifier ?? runCommandVerifier;
   const springRunner = options.runSpringVerifier ?? runSpringVerifier;
   if (typeof commandRunner !== "function" || typeof springRunner !== "function") {
@@ -29,7 +33,15 @@ export function createManifestVerifier(manifest, options = {}) {
       projectRoot: workspaceFromRequest(request),
       spec,
       signal: request.signal,
+      ...(hermeticBoundary === undefined ? {} : {
+        hermeticBoundary,
+        inspectBackend: options.inspectBackend,
+        hostPlatform: options.hostPlatform,
+      }),
     });
+  }
+  if (hermeticBoundary !== undefined) {
+    throw usageError("Hermetic Spring verification is not available in this increment.");
   }
   return async (request) => springRunner({
     fixtureRoot: workspaceFromRequest(request),

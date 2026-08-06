@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -16,7 +17,9 @@ import {
   COMMAND_VERIFIER_ADAPTER_ID,
   runCommandVerifier,
 } from "../../../src/adapters/command-verifier.js";
+import { inspectBubblewrapBackend } from "../../../src/adapters/bubblewrap-command.js";
 import { sha256Hex } from "../../../src/index.js";
+import { HERMETIC_REFUSAL_REASON_CODES } from "../../../src/contracts/hermetic-boundary.js";
 
 const spec = Object.freeze({
   schema_version: { major: 1 },
@@ -25,6 +28,35 @@ const spec = Object.freeze({
   args: ["--version"],
   timeout_ms: 1_000,
   max_output_bytes: 1024,
+});
+
+function hermeticBoundary() {
+  return {
+    schema_version: { major: 1 },
+    mode: "hermetic",
+    backend: {
+      kind: "bubblewrap",
+      runtime_identity: "bwrap-0.11.2",
+      image_digest: null,
+    },
+    platform: { host: "linux", supported_hosts: ["linux"] },
+    filesystem: {
+      workspace: "read-write",
+      root: "read-only",
+      host_home: "denied",
+      runtime_socket: "denied",
+    },
+    network: { mode: "none", ambient_egress: "denied" },
+    toolchain: { downloads: "denied", mutable_cache: "denied" },
+    cleanup: { owner: "backend", residue: "denied" },
+    refusal_reason_codes: [...HERMETIC_REFUSAL_REASON_CODES],
+  };
+}
+
+const availableBubblewrap = async () => ({
+  available: true,
+  executable: "/usr/bin/bwrap",
+  runtime_identity: "bwrap-0.11.2",
 });
 
 test("command verifier spawns exact argv directly without shell", async () => {
@@ -64,6 +96,122 @@ test("command verifier spawns exact argv directly without shell", async () => {
   assertFrozenTree(result);
   assert.equal(Object.hasOwn(result, "stdout"), false);
   assert.equal(Object.hasOwn(result, "stderr"), false);
+});
+
+test("command verifier uses bubblewrap only for explicit hermetic authority", async () => {
+  const root = await projectRoot();
+  const calls = [];
+  const result = await runCommandVerifier({
+    projectRoot: root,
+    spec,
+    hermeticBoundary: hermeticBoundary(),
+    hostPlatform: "linux",
+    inspectBackend: availableBubblewrap,
+    spawnImpl(command, args, options) {
+      calls.push({ command, args, options });
+      return childProcess({ stdout: "ok\n" });
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, "/usr/bin/bwrap");
+  assert.equal(calls[0].args.at(-2), "node");
+  assert.equal(calls[0].args.at(-1), "--version");
+  assert.equal(calls[0].options.shell, false);
+  assert.deepEqual(result.argv, ["node", "--version"]);
+});
+
+test("real bubblewrap execution succeeds where available and otherwise refuses", async () => {
+  const root = await projectRoot();
+  const inspected = process.platform === "linux"
+    ? await inspectBubblewrapBackend()
+    : { available: false };
+
+  if (!inspected.available) {
+    let spawnCalls = 0;
+    await assert.rejects(
+      runCommandVerifier({
+        projectRoot: root,
+        spec,
+        hermeticBoundary: hermeticBoundary(),
+        spawnImpl() {
+          spawnCalls += 1;
+          return childProcess();
+        },
+      }),
+      (error) => {
+        assert.equal(error.code, "safety_refusal");
+        assert.equal(
+          ["platform_unsupported", "backend_missing"].includes(error.details.refusal.code),
+          true,
+        );
+        return true;
+      },
+    );
+    assert.equal(spawnCalls, 0);
+    return;
+  }
+
+  await mkdir(join(root, "tools"));
+  const verifier = join(root, "tools", "verify");
+  await writeFile(verifier, "#!/bin/sh\nprintf ok\n");
+  await chmod(verifier, 0o755);
+  const boundary = hermeticBoundary();
+  boundary.backend.runtime_identity = inspected.runtime_identity;
+  const result = await runCommandVerifier({
+    projectRoot: root,
+    spec: { ...spec, command: "./tools/verify", args: [] },
+    hermeticBoundary: boundary,
+  });
+
+  assert.equal(result.status, "passed");
+  assert.equal(result.stdout_sha256, sha256Hex(Buffer.from("ok")));
+});
+
+test("hermetic command refusal occurs before spawn with no direct fallback", async () => {
+  const root = await projectRoot();
+  let spawnCalls = 0;
+  await assert.rejects(
+    runCommandVerifier({
+      projectRoot: root,
+      spec,
+      hermeticBoundary: hermeticBoundary(),
+      hostPlatform: "linux",
+      inspectBackend: async () => ({ available: false }),
+      spawnImpl() {
+        spawnCalls += 1;
+        return childProcess();
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "safety_refusal");
+      assert.equal(error.details.refusal.code, "backend_missing");
+      return true;
+    },
+  );
+  assert.equal(spawnCalls, 0);
+});
+
+test("bubblewrap launch failure never retries the verifier directly", async () => {
+  const root = await projectRoot();
+  const commands = [];
+  await assert.rejects(
+    runCommandVerifier({
+      projectRoot: root,
+      spec,
+      hermeticBoundary: hermeticBoundary(),
+      hostPlatform: "linux",
+      inspectBackend: availableBubblewrap,
+      spawnImpl(command) {
+        commands.push(command);
+        const error = new Error("backend launch refused");
+        error.code = "EPERM";
+        throw error;
+      },
+    }),
+    (error) => error.code === "infra_error" && error.details.cause_code === "EPERM",
+  );
+  assert.deepEqual(commands, ["/usr/bin/bwrap"]);
 });
 
 test("command verifier validates project root and spec", async () => {
@@ -185,6 +333,42 @@ test("command verifier terminates on timeout", async () => {
       return true;
     },
   );
+  assert.equal(killedWith, "SIGTERM");
+});
+
+test("hermetic command verifier preserves timeout termination", async () => {
+  const root = await projectRoot();
+  let killedWith;
+  let spawnedCommand;
+
+  await assert.rejects(
+    () =>
+      runCommandVerifier({
+        projectRoot: root,
+        spec: { ...spec, timeout_ms: 1 },
+        hermeticBoundary: hermeticBoundary(),
+        hostPlatform: "linux",
+        inspectBackend: availableBubblewrap,
+        spawnImpl(command) {
+          spawnedCommand = command;
+          const child = new EventEmitter();
+          child.stdout = new PassThrough();
+          child.stderr = new PassThrough();
+          child.kill = (signal) => {
+            killedWith = signal;
+            child.emit("close", null, signal);
+            return true;
+          };
+          return child;
+        },
+      }),
+    (error) =>
+      error.code === "verification_failed" &&
+      error.details.result.timed_out === true &&
+      error.details.result.signal === "SIGTERM",
+  );
+
+  assert.equal(spawnedCommand, "/usr/bin/bwrap");
   assert.equal(killedWith, "SIGTERM");
 });
 
