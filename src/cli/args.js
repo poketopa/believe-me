@@ -26,6 +26,16 @@ const commands = Object.freeze({
     requiredFlags: Object.freeze([]),
     positionals: 1,
   }),
+  "export-bundle": Object.freeze({
+    flags: Object.freeze(["output", "project", "state-dir"]),
+    requiredFlags: Object.freeze(["output"]),
+    positionals: 1,
+  }),
+  "verify-bundle": Object.freeze({
+    flags: Object.freeze(["bundle"]),
+    requiredFlags: Object.freeze(["bundle"]),
+    positionals: 0,
+  }),
   apply: Object.freeze({
     flags: Object.freeze(["approve", "project", "state-dir"]),
     requiredFlags: Object.freeze(["approve"]),

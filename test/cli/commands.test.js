@@ -266,6 +266,78 @@ test("review exposes only the validated receipt and evidence summary", async () 
   });
 });
 
+test("export-bundle publishes validated review evidence with a bounded response", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const bytes = Buffer.from("portable bytes\n", "utf8");
+  let buildInput;
+  let writeInput;
+  const exported = await executeCliCommand({
+    command: "export-bundle",
+    runId: "run-1",
+    project: projectRoot,
+    output: "review.jsonl",
+  }, {
+    readRunState: async () => ({ state: reviewState(), sha256: paddedHash }),
+    readEvidenceBundle: async () => reviewEvidence(),
+    buildPortableEvidenceBundle(input) {
+      buildInput = input;
+      return { bytes };
+    },
+    async writePortableEvidenceBundle(path, content, options) {
+      writeInput = { path, content, options };
+      return {
+        output_path: join(projectRoot, "review.jsonl"),
+        bundle_bytes: bytes.byteLength,
+        bundle_sha256: paddedHash,
+      };
+    },
+    cwd: projectRoot,
+  });
+
+  assert.equal(buildInput.state.run_id, "run-1");
+  assert.equal(buildInput.stateSha256, paddedHash);
+  assert.deepEqual(writeInput, {
+    path: "review.jsonl",
+    content: bytes,
+    options: { cwd: projectRoot },
+  });
+  assert.deepEqual(exported, {
+    run_id: "run-1",
+    output_path: join(projectRoot, "review.jsonl"),
+    bundle_bytes: bytes.byteLength,
+    bundle_sha256: paddedHash,
+    receipt_sha256: hash,
+  });
+});
+
+test("verify-bundle dispatches without project or state resolution", async () => {
+  let observed;
+  const summary = await executeCliCommand({
+    command: "verify-bundle",
+    bundle: "review.jsonl",
+  }, {
+    cwd: "/unrelated",
+    async readPortableEvidenceBundle(path, options) {
+      observed = { path, options };
+      return { verification_status: "portable_evidence_verified" };
+    },
+    readRunState: async () => {
+      throw new Error("verify-bundle must not read state");
+    },
+    readEvidenceBundle: async () => {
+      throw new Error("verify-bundle must not read evidence storage");
+    },
+  });
+
+  assert.deepEqual(observed, {
+    path: "review.jsonl",
+    options: { cwd: "/unrelated" },
+  });
+  assert.deepEqual(summary, {
+    verification_status: "portable_evidence_verified",
+  });
+});
+
 test("missing status maps filesystem absence to not_found", async () => {
   const missing = new Error("missing");
   missing.code = "ENOENT";

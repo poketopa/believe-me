@@ -6,6 +6,17 @@ import { createManifestVerifier } from "../adapters/manifest-verifier.js";
 import { applyEvidenceBundle } from "../core/apply.js";
 import { readEvidenceBundle } from "../core/evidence.js";
 import {
+  buildPortableEvidenceBundle,
+  readPortableEvidenceBundle,
+  writePortableEvidenceBundle,
+} from "../core/portable-evidence.js";
+import {
+  assertEvidenceReceiptBoundToState,
+  assertReviewableLifecycle,
+  storedReviewSummary,
+  validateReviewEvidence,
+} from "../core/review-evidence.js";
+import {
   runDeterministicHarness,
   runHarness,
 } from "../core/run-orchestrator.js";
@@ -16,7 +27,6 @@ import {
   usageError,
   verificationFailed,
 } from "../contracts/errors.js";
-import { validateExecutorResult } from "../contracts/executor.js";
 import { validateCodexTaskInput } from "../contracts/codex-executor.js";
 import { canonicalJSONLine } from "../core/canonical-json.js";
 import { readRegularFileNoFollow } from "../core/snapshot.js";
@@ -27,14 +37,6 @@ import {
 } from "../core/adaptive-session.js";
 
 const INIT_CONFIG_FILE = "config.jsonl";
-const REVIEWABLE_LIFECYCLE_STATES = Object.freeze([
-  "verified",
-  "receipted",
-  "approved",
-  "applied",
-  "rolled_back",
-]);
-
 function resolveProjectPath(cwd, project = ".") {
   return resolve(cwd, project);
 }
@@ -204,15 +206,8 @@ async function readBoundReceipt(stateDir, runId, dependencies, options = {}) {
       run_id: runId,
     });
   }
-  if (
-    options.review === true &&
-    !REVIEWABLE_LIFECYCLE_STATES.includes(stored.state.lifecycle_state)
-  ) {
-    throw safetyRefusal("Run lifecycle state cannot be reviewed.", {
-      run_id: runId,
-      lifecycle_state: stored.state.lifecycle_state,
-      allowed_lifecycle_states: REVIEWABLE_LIFECYCLE_STATES,
-    });
+  if (options.review === true) {
+    assertReviewableLifecycle(stored.state);
   }
   if (!stored.state.receipt_sha256) {
     throw notFound("Run has not produced a receipt.", { run_id: runId });
@@ -220,32 +215,11 @@ async function readBoundReceipt(stateDir, runId, dependencies, options = {}) {
   const evidence = await mapMissingRun(() => dependencies.readEvidenceBundle(
     stored.state.artifact_root,
   ));
-  assertReceiptBoundToState(stored.state, evidence);
+  assertEvidenceReceiptBoundToState(stored.state, evidence);
   return Object.freeze({
     ...stored,
     evidence,
   });
-}
-
-function assertReceiptBoundToState(state, evidence) {
-  if (
-    !state.receipt_sha256 ||
-    state.receipt_sha256 !== evidence.receipt_sha256
-  ) {
-    throw safetyRefusal("Receipt hash does not match persisted run state.");
-  }
-  for (const field of [
-    "run_id",
-    "manifest_sha256",
-    "workflow_plan_sha256",
-    "source_snapshot_sha256",
-  ]) {
-    if (state[field] !== evidence.receipt[field]) {
-      throw safetyRefusal(`Receipt field '${field}' does not match run state.`, {
-        field,
-      });
-    }
-  }
 }
 
 async function readReceiptCommand(stateDir, runId, dependencies) {
@@ -258,107 +232,37 @@ async function readReceiptCommand(stateDir, runId, dependencies) {
   });
 }
 
-function assertReviewVerification(verification) {
-  if (verification === null || typeof verification !== "object" || Array.isArray(verification)) {
-    throw safetyRefusal("Stored verification artifact is malformed.");
-  }
-  if (
-    verification.schema_version === null ||
-    typeof verification.schema_version !== "object" ||
-    Array.isArray(verification.schema_version) ||
-    verification.schema_version.major !== 1
-  ) {
-    throw safetyRefusal("Stored verification artifact schema is unsupported.", {
-      schema_version: verification.schema_version ?? null,
-    });
-  }
-  if (typeof verification.adapter_id !== "string" || verification.adapter_id.length === 0) {
-    throw safetyRefusal("Stored verification artifact is missing adapter_id.");
-  }
-  if (typeof verification.status !== "string" || verification.status.length === 0) {
-    throw safetyRefusal("Stored verification artifact is missing status.");
-  }
-  if (verification.status !== "passed") {
-    throw verificationFailed("Stored verification artifact did not pass.", {
-      adapter_id: verification.adapter_id,
-      status: verification.status,
-    });
-  }
-  return verification;
-}
-
-function assertReviewResult(result, state) {
-  let validated;
-  try {
-    validated = validateExecutorResult(result, { persisted: true });
-  } catch (error) {
-    throw safetyRefusal("Stored result artifact is malformed.", {
-      cause_code: error.code ?? null,
-    });
-  }
-  if (validated.run_id !== state.run_id) {
-    throw safetyRefusal("Evidence result run id does not match run state.", {
-      expected_run_id: state.run_id,
-      actual_run_id: validated.run_id,
-    });
-  }
-  if (validated.executor_kind !== state.executor_kind) {
-    throw safetyRefusal("Evidence result executor kind does not match run state.", {
-      expected_executor_kind: state.executor_kind,
-      actual_executor_kind: validated.executor_kind,
-    });
-  }
-  return validated;
-}
-
-function freezeReviewChanges(changes) {
-  return Object.freeze(changes.map((change) => Object.freeze({
-    path: change.path,
-    sha256: change.sha256,
-  })));
-}
-
-async function readReviewCommand(stateDir, runId, dependencies) {
+async function readValidatedReview(stateDir, runId, dependencies) {
   const { state, sha256: stateSha256, evidence } = await readBoundReceipt(
     stateDir,
     runId,
     dependencies,
     { review: true },
   );
-  const verification = assertReviewVerification(evidence.verification);
-  const result = assertReviewResult(evidence.result, state);
-
-  return Object.freeze({
-    run_id: runId,
-    lifecycle_state: state.lifecycle_state,
-    state_sha256: stateSha256,
-    review_status: "stored_evidence_verified",
-    approval: Object.freeze({
-      method: evidence.receipt.approval_method,
-      receipt_sha256: evidence.receipt_sha256,
-    }),
-    bindings: Object.freeze({
-      manifest_sha256: evidence.receipt.manifest_sha256,
-      workflow_plan_sha256: evidence.receipt.workflow_plan_sha256,
-      source_snapshot_sha256: evidence.receipt.source_snapshot_sha256,
-      verification_sha256: evidence.receipt.verification_sha256,
-      result_sha256: evidence.receipt.result_sha256,
-    }),
-    verification: Object.freeze({
-      adapter_id: verification.adapter_id,
-      status: verification.status,
-    }),
-    changes: freezeReviewChanges(result.changes),
+  return validateReviewEvidence({
+    state,
+    stateSha256,
+    evidence,
   });
+}
+
+async function readReviewCommand(stateDir, runId, dependencies) {
+  return storedReviewSummary(
+    await readValidatedReview(stateDir, runId, dependencies),
+  );
 }
 
 function dependencies(options) {
   return {
     applyEvidenceBundle: options.applyEvidenceBundle ?? applyEvidenceBundle,
+    buildPortableEvidenceBundle:
+      options.buildPortableEvidenceBundle ?? buildPortableEvidenceBundle,
     createCodexExecutor: options.createCodexExecutor ?? createCodexExecutor,
     createManifestVerifier:
       options.createManifestVerifier ?? createManifestVerifier,
     readEvidenceBundle: options.readEvidenceBundle ?? readEvidenceBundle,
+    readPortableEvidenceBundle:
+      options.readPortableEvidenceBundle ?? readPortableEvidenceBundle,
     readRunState: options.readRunState ?? readRunState,
     readFrozenRunInputs:
       options.readFrozenRunInputs ?? readFrozenRunInputs,
@@ -369,6 +273,8 @@ function dependencies(options) {
     runHarness: options.runHarness ?? runHarness,
     runIdFactory: options.runIdFactory ?? (() => `run-${randomUUID()}`),
     verifyAppliedProject: options.verifyAppliedProject ?? null,
+    writePortableEvidenceBundle:
+      options.writePortableEvidenceBundle ?? writePortableEvidenceBundle,
   };
 }
 
@@ -392,8 +298,13 @@ async function applyVerifierForStoredRun(stateDir, runId, state, deps) {
 
 export async function executeCliCommand(parsed, options = {}) {
   const cwd = resolve(options.cwd ?? process.cwd());
-  const paths = commandPaths(parsed, cwd);
   const deps = dependencies(options);
+
+  if (parsed.command === "verify-bundle") {
+    return deps.readPortableEvidenceBundle(parsed.bundle, { cwd });
+  }
+
+  const paths = commandPaths(parsed, cwd);
 
   if (parsed.command === "init") {
     return initializeProject(paths.projectRoot, paths.stateDir);
@@ -446,6 +357,44 @@ export async function executeCliCommand(parsed, options = {}) {
 
   if (parsed.command === "review") {
     return readReviewCommand(paths.stateDir, parsed.runId, deps);
+  }
+
+  if (parsed.command === "export-bundle") {
+    const validated = await readValidatedReview(
+      paths.stateDir,
+      parsed.runId,
+      deps,
+    );
+    const bundle = deps.buildPortableEvidenceBundle({
+      state: {
+        run_id: validated.run_id,
+        lifecycle_state: validated.lifecycle_state,
+        manifest_sha256: validated.receipt.manifest_sha256,
+        workflow_plan_sha256: validated.receipt.workflow_plan_sha256,
+        source_snapshot_sha256: validated.receipt.source_snapshot_sha256,
+        executor_kind: validated.executor_kind,
+        receipt_sha256: validated.receipt_sha256,
+      },
+      stateSha256: validated.state_sha256,
+      evidence: {
+        receipt_sha256: validated.receipt_sha256,
+        receipt: validated.receipt,
+        verification: validated.verification,
+        result: validated.result,
+      },
+    });
+    const published = await deps.writePortableEvidenceBundle(
+      parsed.output,
+      bundle.bytes,
+      { cwd },
+    );
+    return Object.freeze({
+      run_id: validated.run_id,
+      output_path: published.output_path,
+      bundle_bytes: published.bundle_bytes,
+      bundle_sha256: published.bundle_sha256,
+      receipt_sha256: validated.receipt_sha256,
+    });
   }
 
   if (parsed.command === "apply") {

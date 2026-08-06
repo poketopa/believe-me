@@ -45,7 +45,7 @@ test("parses run with required executor inputs", () => {
   );
 });
 
-test("parses status receipt and apply run id positionals", () => {
+test("parses run-bound and portable evidence commands", () => {
   assert.deepEqual(parseCliArgs(["status", "run-1"]), {
     command: "status",
     runId: "run-1",
@@ -64,6 +64,29 @@ test("parses status receipt and apply run id positionals", () => {
     command: "review",
     runId: "run-1",
   });
+  assert.deepEqual(
+    parseCliArgs([
+      "export-bundle",
+      "run-1",
+      "--output",
+      "./run.jsonl",
+      "--project",
+      "/repo",
+    ]),
+    {
+      command: "export-bundle",
+      runId: "run-1",
+      output: "./run.jsonl",
+      project: "/repo",
+    },
+  );
+  assert.deepEqual(
+    parseCliArgs(["verify-bundle", "--bundle", "./run.jsonl"]),
+    {
+      command: "verify-bundle",
+      bundle: "./run.jsonl",
+    },
+  );
 });
 
 test("rejects unknown commands and flags with usage errors", () => {
@@ -108,6 +131,22 @@ test("rejects missing required flags extra positionals and unsupported executor"
     /Missing required flag '--input'/,
   );
   assert.throws(
+    () => parseCliArgs(["export-bundle", "run-1"]),
+    /Missing required flag '--output'/,
+  );
+  assert.throws(
+    () => parseCliArgs(["verify-bundle"]),
+    /Missing required flag '--bundle'/,
+  );
+  assert.throws(
+    () => parseCliArgs(["verify-bundle", "run-1", "--bundle", "x"]),
+    /Invalid positional argument count/,
+  );
+  assert.throws(
+    () => parseCliArgs(["verify-bundle", "--bundle", "x", "--project", "/repo"]),
+    /Unknown flag/,
+  );
+  assert.throws(
     () => parseCliArgs(["status", "run-1", "extra"]),
     /Invalid positional argument count/,
   );
@@ -138,10 +177,14 @@ test("rejects malformed approval hashes", () => {
 });
 
 test("rejects unsafe run ids before path construction", () => {
-  for (const command of ["status", "receipt", "review"]) {
+  for (const command of ["status", "receipt", "review", "export-bundle"]) {
     for (const runId of ["../run-1", "nested/run-1", ".hidden", "-bad"]) {
       assert.throws(
-        () => parseCliArgs([command, runId]),
+        () => parseCliArgs(
+          command === "export-bundle"
+            ? [command, runId, "--output", "bundle.jsonl"]
+            : [command, runId],
+        ),
         (error) => error.code === "usage_error" && error.exitCode === 2,
       );
     }

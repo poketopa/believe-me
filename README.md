@@ -47,8 +47,9 @@ skill / policy
 - deterministic stale-source, tamper, crash, resume, and rollback tests.
 - deterministic verifier mutation calibration over independent Node and Spring tasks.
 
-The CLI surface is `init`, `run`, `status`, `receipt`, `review`, `apply`, and
-the additive `apply-session` command for a verified adaptive-session winner.
+The CLI surface is `init`, `run`, `status`, `receipt`, `review`,
+`export-bundle`, `verify-bundle`, `apply`, and the additive `apply-session`
+command for a verified adaptive-session winner.
 
 ## Current proof
 
@@ -126,6 +127,10 @@ believeme run \
 believeme status <run-id> --project ./my-project
 believeme receipt <run-id> --project ./my-project
 believeme review <run-id> --project ./my-project
+believeme export-bundle <run-id> \
+  --output ./run-evidence.jsonl \
+  --project ./my-project
+believeme verify-bundle --bundle ./run-evidence.jsonl
 believeme apply <run-id> \
   --approve <receipt-sha256> \
   --project ./my-project
@@ -209,6 +214,21 @@ or exposing candidate bytes. Its `stored_evidence_verified` status describes
 stored canonical bytes, receipt hash links, minimal result/verifier semantics,
 and run-state binding only; it is not a signature, a fresh verifier run, or a
 current-source freshness claim.
+
+`believeme export-bundle` writes the same validated stored evidence as one
+deterministic canonical JSONL file. The output contains candidate source bytes
+in base64, so export is explicit, refuses overwrite, and creates the file with
+private `0600` permissions subject to a stricter process umask. The parent must
+already be a real directory path, and the encoded file is limited to 64 MiB.
+Two exports of unchanged stored evidence are byte-identical.
+
+`believeme verify-bundle` reads only the supplied regular file: it does not need
+the original project or `.harness`, does not rerun the verifier, and does not
+compare current source. Its `portable_evidence_verified` status means the
+canonical file, receipt digest, embedded verification/result digests, and their
+run/executor semantics are internally consistent. The unsigned bundle does not
+prove identity, provenance, freshness, or independent execution, and it cannot
+be imported, approved, or applied.
 
 ## Development
 
