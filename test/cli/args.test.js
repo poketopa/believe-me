@@ -64,6 +64,18 @@ test("parses run-bound and portable evidence commands", () => {
     command: "review",
     runId: "run-1",
   });
+  assert.deepEqual(parseCliArgs(["status-session", "session-1"]), {
+    command: "status-session",
+    runId: "session-1",
+  });
+  assert.deepEqual(
+    parseCliArgs(["review-session", "session-1", "--project", "/repo"]),
+    {
+      command: "review-session",
+      runId: "session-1",
+      project: "/repo",
+    },
+  );
   assert.deepEqual(
     parseCliArgs([
       "export-bundle",
@@ -114,6 +126,28 @@ test("rejects duplicate flags missing values and flag equals syntax", () => {
     () => parseCliArgs(["run", "--project=/repo"]),
     /Unknown flag/,
   );
+  for (const command of ["status-session", "review-session"]) {
+    assert.throws(() => parseCliArgs([command]), /positional argument count/);
+    assert.throws(
+      () => parseCliArgs([command, "session-1", "extra"]),
+      /positional argument count/,
+    );
+    assert.throws(
+      () => parseCliArgs([command, "session-1", "--unknown", "x"]),
+      /Unknown flag/,
+    );
+    assert.throws(
+      () => parseCliArgs([
+        command,
+        "session-1",
+        "--project",
+        "/repo",
+        "--project",
+        "/other",
+      ]),
+      /Duplicate flag/,
+    );
+  }
 });
 
 test("rejects missing required flags extra positionals and unsupported executor", () => {
@@ -177,7 +211,14 @@ test("rejects malformed approval hashes", () => {
 });
 
 test("rejects unsafe run ids before path construction", () => {
-  for (const command of ["status", "receipt", "review", "export-bundle"]) {
+  for (const command of [
+    "status",
+    "receipt",
+    "review",
+    "status-session",
+    "review-session",
+    "export-bundle",
+  ]) {
     for (const runId of ["../run-1", "nested/run-1", ".hidden", "-bad"]) {
       assert.throws(
         () => parseCliArgs(

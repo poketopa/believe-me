@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { sha256Hex } from "../../src/core/hash.js";
+import { createTerminalAdaptiveSession } from "../helpers/adaptive-session-fixture.js";
 
 const cliPath = resolve("bin/believeme.js");
 
@@ -73,6 +74,47 @@ async function readTextArtifacts(paths) {
   );
   return Object.fromEntries(entries);
 }
+
+test("CLI reads a completed adaptive session without changing its artifacts", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-adaptive-"));
+  const stateDir = join(projectRoot, ".harness");
+  const sessionId = "session-cli-read";
+  const completed = await createTerminalAdaptiveSession(stateDir, sessionId);
+  const sessionRoot = join(stateDir, "sessions", sessionId);
+  const artifactPaths = {
+    input: join(sessionRoot, "input.jsonl"),
+    inputDigest: join(sessionRoot, "input.sha256"),
+    attempt: join(sessionRoot, "attempts", "attempt-0000.jsonl"),
+    attemptDigest: join(sessionRoot, "attempts", "attempt-0000.sha256"),
+    claim: join(sessionRoot, "attempts", "claim-0000.jsonl"),
+    claimDigest: join(sessionRoot, "attempts", "claim-0000.sha256"),
+    session: join(sessionRoot, "session.jsonl"),
+    sessionDigest: join(sessionRoot, "session.sha256"),
+  };
+  const before = await readTextArtifacts(artifactPaths);
+
+  const status = assertSuccess(await runCli([
+    "status-session",
+    sessionId,
+    "--project",
+    projectRoot,
+  ]), "status-session");
+  assert.equal(status.data.session_status, "completed");
+  assert.equal(status.data.terminal_reason, "terminal_failure");
+  assert.equal(status.data.session_receipt_sha256, completed.session_receipt_sha256);
+
+  const review = assertSuccess(await runCli([
+    "review-session",
+    sessionId,
+    "--project",
+    projectRoot,
+  ]), "review-session");
+  assert.equal(review.data.review_status, "adaptive_session_verified");
+  assert.equal(review.data.terminal_reason, "terminal_failure");
+  assert.equal(review.data.winner, null);
+  assert.equal(review.data.attempts.length, 1);
+  assert.deepEqual(await readTextArtifacts(artifactPaths), before);
+});
 
 test("CLI process runs, receipts, and explicitly applies the Spring proof", async () => {
   const canonicalRoot = resolve(

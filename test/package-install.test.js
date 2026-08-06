@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { createTerminalAdaptiveSession } from "./helpers/adaptive-session-fixture.js";
 
 function run(command, args, options = {}) {
   return new Promise((resolveResult, reject) => {
@@ -103,6 +104,36 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(help.code, 0, help.stderr);
   assert.match(help.stdout, /believeme export-bundle/);
   assert.match(help.stdout, /believeme verify-bundle/);
+  assert.match(help.stdout, /believeme status-session/);
+  assert.match(help.stdout, /believeme review-session/);
+
+  const installedProject = join(installRoot, "project");
+  const installedState = join(installedProject, ".harness");
+  const sessionId = "installed-session-read";
+  const completedSession = await createTerminalAdaptiveSession(
+    installedState,
+    sessionId,
+  );
+  const statusSession = parseSuccessfulJsonl(await run(executable, [
+    "status-session",
+    sessionId,
+    "--project",
+    installedProject,
+  ], { cwd: installRoot, env: process.env }), "status-session");
+  assert.equal(statusSession.session_status, "completed");
+  assert.equal(
+    statusSession.session_receipt_sha256,
+    completedSession.session_receipt_sha256,
+  );
+  const reviewSession = parseSuccessfulJsonl(await run(executable, [
+    "review-session",
+    sessionId,
+    "--project",
+    installedProject,
+  ], { cwd: installRoot, env: process.env }), "review-session");
+  assert.equal(reviewSession.review_status, "adaptive_session_verified");
+  assert.equal(reviewSession.terminal_reason, "terminal_failure");
+  assert.equal(reviewSession.winner, null);
 
   const benchmarkApi = await run(
     process.execPath,

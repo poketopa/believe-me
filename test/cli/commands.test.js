@@ -227,6 +227,169 @@ test("status and receipt expose verified persisted data", async () => {
   assert.equal(receipt.receipt.run_id, "run-1");
 });
 
+test("status-session delegates to the read-only adaptive status boundary", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  let observed;
+  const expected = Object.freeze({
+    session_id: "session-1",
+    session_status: "in_progress",
+    attempt_count: 1,
+    terminal_reason: null,
+    winner_run_id: null,
+    session_receipt_sha256: null,
+    policy_sha256: hash,
+    context_pack_sha256: paddedHash,
+  });
+  const status = await executeCliCommand({
+    command: "status-session",
+    runId: "session-1",
+    project: projectRoot,
+  }, {
+    async readAdaptiveSessionStatus(stateDir, sessionId) {
+      observed = { stateDir, sessionId };
+      return expected;
+    },
+    runHarness: async () => { throw new Error("status-session must not run"); },
+    applyEvidenceBundle: async () => {
+      throw new Error("status-session must not apply");
+    },
+  });
+
+  assert.deepEqual(observed, {
+    stateDir: join(projectRoot, ".harness"),
+    sessionId: "session-1",
+  });
+  assert.equal(status, expected);
+});
+
+test("review-session summarizes a terminal session without a winner", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const result = await executeCliCommand({
+    command: "review-session",
+    runId: "session-1",
+    project: projectRoot,
+  }, {
+    readAdaptiveSession: async () => ({
+      session_receipt_sha256: paddedHash,
+      input: { context_pack: { source_snapshot_sha256: hash } },
+      session: {
+        session_id: "session-1",
+        terminal_reason: "terminal_failure",
+        policy_sha256: hash,
+        context_pack_sha256: paddedHash,
+        attempts: [{
+          attempt_index: 0,
+          child_run_id: "session-1-child-1",
+          child_run_evidence_sha256: hash,
+          route_id: "initial",
+          status: "safety_refusal",
+          verification_status: "not_run",
+          winner: false,
+        }],
+      },
+    }),
+    readRunState: async () => {
+      throw new Error("a no-winner session must not read a child run");
+    },
+  });
+
+  assert.deepEqual(result, {
+    session_id: "session-1",
+    review_status: "adaptive_session_verified",
+    terminal_reason: "terminal_failure",
+    session_receipt_sha256: paddedHash,
+    policy_sha256: hash,
+    context_pack_sha256: paddedHash,
+    attempts: [{
+      attempt_index: 0,
+      child_run_id: "session-1-child-1",
+      route_id: "initial",
+      status: "safety_refusal",
+      verification_status: "not_run",
+      winner: false,
+      child_run_evidence_sha256: hash,
+    }],
+    winner: null,
+  });
+});
+
+test("review-session preserves distinct bounded no-winner terminal reasons", async () => {
+  for (const terminalReason of ["telemetry_missing", "no_authorized_route"]) {
+    const result = await executeCliCommand({
+      command: "review-session",
+      runId: `session-${terminalReason}`,
+    }, {
+      readAdaptiveSession: async () => ({
+        session_receipt_sha256: hash,
+        input: { context_pack: { source_snapshot_sha256: hash } },
+        session: {
+          session_id: `session-${terminalReason}`,
+          terminal_reason: terminalReason,
+          policy_sha256: hash,
+          context_pack_sha256: hash,
+          attempts: [],
+        },
+      }),
+    });
+    assert.equal(result.terminal_reason, terminalReason);
+    assert.equal(result.winner, null);
+  }
+});
+
+test("review-session verifies the winning child receipt and frozen snapshot", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const childRunId = "session-1-child-1";
+  const state = reviewState({ run_id: childRunId });
+  const evidence = reviewEvidence();
+  evidence.receipt.run_id = childRunId;
+  evidence.result.run_id = childRunId;
+  const options = {
+    readAdaptiveSession: async () => ({
+      session_receipt_sha256: paddedHash,
+      input: { context_pack: { source_snapshot_sha256: hash } },
+      session: {
+        session_id: "session-1",
+        terminal_reason: "winner",
+        policy_sha256: hash,
+        context_pack_sha256: paddedHash,
+        attempts: [{
+          attempt_index: 0,
+          child_run_id: childRunId,
+          child_run_evidence_sha256: hash,
+          route_id: "initial",
+          status: "completed",
+          verification_status: "passed",
+          winner: true,
+        }],
+      },
+    }),
+    readRunState: async () => ({ state, sha256: paddedHash }),
+    readEvidenceBundle: async () => evidence,
+  };
+  const result = await executeCliCommand({
+    command: "review-session",
+    runId: "session-1",
+    project: projectRoot,
+  }, options);
+
+  assert.deepEqual(result.winner, {
+    child_run_id: childRunId,
+    receipt_sha256: hash,
+  });
+  assert.equal(result.review_status, "adaptive_session_verified");
+
+  evidence.receipt.source_snapshot_sha256 = paddedHash;
+  state.source_snapshot_sha256 = paddedHash;
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "review-session",
+      runId: "session-1",
+      project: projectRoot,
+    }, options),
+    (error) => error.code === "safety_refusal",
+  );
+});
+
 test("review exposes only the validated receipt and evidence summary", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
   const change = candidateChange("src/app.txt", "candidate bytes");

@@ -33,6 +33,7 @@ import { readRegularFileNoFollow } from "../core/snapshot.js";
 import { readFrozenRunInputs } from "../core/run-artifacts.js";
 import {
   readAdaptiveSession,
+  readAdaptiveSessionStatus,
   resolveAdaptiveSessionWinner,
 } from "../core/adaptive-session.js";
 
@@ -268,6 +269,8 @@ function dependencies(options) {
       options.readFrozenRunInputs ?? readFrozenRunInputs,
     readAdaptiveSession:
       options.readAdaptiveSession ?? readAdaptiveSession,
+    readAdaptiveSessionStatus:
+      options.readAdaptiveSessionStatus ?? readAdaptiveSessionStatus,
     runDeterministicHarness:
       options.runDeterministicHarness ?? runDeterministicHarness,
     runHarness: options.runHarness ?? runHarness,
@@ -357,6 +360,61 @@ export async function executeCliCommand(parsed, options = {}) {
 
   if (parsed.command === "review") {
     return readReviewCommand(paths.stateDir, parsed.runId, deps);
+  }
+
+  if (parsed.command === "status-session") {
+    return deps.readAdaptiveSessionStatus(paths.stateDir, parsed.runId);
+  }
+
+  if (parsed.command === "review-session") {
+    const storedSession = await deps.readAdaptiveSession(
+      paths.stateDir,
+      parsed.runId,
+    );
+    const attempts = storedSession.session.attempts.map((attempt) =>
+      Object.freeze({
+        attempt_index: attempt.attempt_index,
+        child_run_id: attempt.child_run_id,
+        route_id: attempt.route_id,
+        status: attempt.status,
+        verification_status: attempt.verification_status,
+        winner: attempt.winner,
+        child_run_evidence_sha256: attempt.child_run_evidence_sha256,
+      }));
+    const winner = storedSession.session.attempts.find(
+      (attempt) => attempt.winner,
+    ) ?? null;
+    let winnerSummary = null;
+    if (winner !== null) {
+      const review = await readValidatedReview(
+        paths.stateDir,
+        winner.child_run_id,
+        deps,
+      );
+      if (
+        review.receipt_sha256 !== winner.child_run_evidence_sha256 ||
+        review.receipt.source_snapshot_sha256 !==
+          storedSession.input.context_pack.source_snapshot_sha256
+      ) {
+        throw safetyRefusal(
+          "Adaptive winner evidence is not bound to the frozen session input.",
+        );
+      }
+      winnerSummary = Object.freeze({
+        child_run_id: winner.child_run_id,
+        receipt_sha256: review.receipt_sha256,
+      });
+    }
+    return Object.freeze({
+      session_id: storedSession.session.session_id,
+      review_status: "adaptive_session_verified",
+      terminal_reason: storedSession.session.terminal_reason,
+      session_receipt_sha256: storedSession.session_receipt_sha256,
+      policy_sha256: storedSession.session.policy_sha256,
+      context_pack_sha256: storedSession.session.context_pack_sha256,
+      attempts: Object.freeze(attempts),
+      winner: winnerSummary,
+    });
   }
 
   if (parsed.command === "export-bundle") {

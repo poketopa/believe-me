@@ -27,6 +27,8 @@ test("CLI documents the current command surface", () => {
     "status",
     "receipt",
     "review",
+    "status-session",
+    "review-session",
     "export-bundle",
     "verify-bundle",
     "apply",
