@@ -13,6 +13,10 @@ import {
 } from "../contracts/errors.js";
 import { validateVerifierSpec } from "../contracts/verifier.js";
 import { sha256Hex } from "../core/hash.js";
+import {
+  inspectBubblewrapBackend,
+  prepareBubblewrapCommand,
+} from "./bubblewrap-command.js";
 
 export const COMMAND_VERIFIER_ADAPTER_ID = "command-verifier";
 
@@ -24,15 +28,35 @@ function wait(milliseconds) {
 }
 
 export async function runCommandVerifier(options = {}) {
-  const { projectRoot, spec, spawnImpl, processKill, signal } = validateOptions(options);
+  const {
+    projectRoot,
+    spec,
+    spawnImpl,
+    processKill,
+    signal,
+    hermeticBoundary,
+    hostPlatform,
+    inspectBackend,
+  } = validateOptions(options);
   const root = await validateProjectRoot(projectRoot);
   const verifierSpec = validateVerifierSpec(spec);
   assertCommandVerifierSpec(verifierSpec);
   await validateProjectRelativeExecutable(root, verifierSpec.command);
 
+  const invocation = hermeticBoundary === undefined
+    ? Object.freeze({ command: verifierSpec.command, args: verifierSpec.args })
+    : await prepareBubblewrapCommand({
+      boundary: hermeticBoundary,
+      hostPlatform,
+      inspectBackend,
+      root,
+      spec: verifierSpec,
+    });
+
   return runVerifierProcess({
     root,
     spec: verifierSpec,
+    invocation,
     spawnImpl,
     processKill,
     signal,
@@ -95,6 +119,9 @@ function validateOptions(options) {
     spawnImpl: options.spawnImpl ?? spawn,
     processKill: options.processKill ?? process.kill,
     signal: options.signal,
+    hermeticBoundary: options.hermeticBoundary,
+    hostPlatform: options.hostPlatform ?? process.platform,
+    inspectBackend: options.inspectBackend ?? inspectBubblewrapBackend,
   };
 }
 
@@ -125,11 +152,18 @@ function assertCommandVerifierSpec(spec) {
   }
 }
 
-async function runVerifierProcess({ root, spec, spawnImpl, processKill, signal }) {
+async function runVerifierProcess({
+  root,
+  spec,
+  invocation,
+  spawnImpl,
+  processKill,
+  signal,
+}) {
   const processGroupEnabled = process.platform !== "win32";
   let child;
   try {
-    child = spawnImpl(spec.command, spec.args, {
+    child = spawnImpl(invocation.command, invocation.args, {
       cwd: root,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],

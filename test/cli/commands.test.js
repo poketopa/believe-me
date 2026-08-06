@@ -1252,6 +1252,7 @@ test("apply resolves verification from the digest-bound frozen manifest", async 
     verifier: { adapter_id: "command-verifier" },
   };
   let readBinding;
+  let readBoundaryBinding;
   let selectedManifest;
   let verifiedRoot;
 
@@ -1272,8 +1273,13 @@ test("apply resolves verification from the digest-bound frozen manifest", async 
       readBinding = { stateDir, runId };
       return { manifest: { value: manifest, sha256: hash } };
     },
-    createManifestVerifier(value) {
+    async readBoundHermeticBoundary(stateDir, runId, expectedSha256) {
+      readBoundaryBinding = { stateDir, runId, expectedSha256 };
+      return null;
+    },
+    createManifestVerifier(value, verifierOptions) {
       selectedManifest = value;
+      assert.equal(verifierOptions, undefined);
       return async ({ workspaceRoot }) => {
         verifiedRoot = workspaceRoot;
         return { status: "passed" };
@@ -1293,9 +1299,95 @@ test("apply resolves verification from the digest-bound frozen manifest", async 
     stateDir: join(projectRoot, ".harness"),
     runId: "run-1",
   });
+  assert.deepEqual(readBoundaryBinding, {
+    stateDir: join(projectRoot, ".harness"),
+    runId: "run-1",
+    expectedSha256: undefined,
+  });
   assert.equal(selectedManifest, manifest);
   assert.equal(verifiedRoot, projectRoot);
   assert.equal(result.lifecycle_state, "applied");
+});
+
+test("apply composes verification from the frozen hermetic boundary", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const boundarySha256 = "c".repeat(64);
+  const boundary = Object.freeze({ mode: "hermetic" });
+  let selectedOptions;
+
+  await executeCliCommand({
+    command: "apply",
+    runId: "run-hermetic",
+    approve: hash,
+    project: projectRoot,
+  }, {
+    readRunState: async () => ({
+      state: {
+        run_id: "run-hermetic",
+        lifecycle_state: "receipted",
+        manifest_sha256: hash,
+        hermetic_boundary_sha256: boundarySha256,
+      },
+    }),
+    readFrozenRunInputs: async () => ({
+      manifest: { value: { verifier: {} }, sha256: hash },
+    }),
+    async readBoundHermeticBoundary(stateDir, runId, expectedSha256) {
+      assert.equal(stateDir, join(projectRoot, ".harness"));
+      assert.equal(runId, "run-hermetic");
+      assert.equal(expectedSha256, boundarySha256);
+      return { boundary, sha256: boundarySha256 };
+    },
+    createManifestVerifier(_manifest, options) {
+      selectedOptions = options;
+      return async () => ({ status: "passed" });
+    },
+    async applyEvidenceBundle(options) {
+      assert.equal(await options.verifier({ projectRoot }), true);
+      return {
+        state: { run_id: "run-hermetic", lifecycle_state: "applied" },
+        receipt_sha256: hash,
+        changed_paths: [],
+      };
+    },
+  });
+
+  assert.deepEqual(selectedOptions, { hermeticBoundary: boundary });
+});
+
+test("hermetic apply refuses an injected verifier after boundary validation", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-project-"));
+  const boundarySha256 = "c".repeat(64);
+  let boundaryReads = 0;
+  let applied = false;
+
+  await assert.rejects(
+    executeCliCommand({
+      command: "apply",
+      runId: "run-hermetic",
+      approve: hash,
+      project: projectRoot,
+    }, {
+      readRunState: async () => ({
+        state: {
+          run_id: "run-hermetic",
+          lifecycle_state: "receipted",
+          hermetic_boundary_sha256: boundarySha256,
+        },
+      }),
+      async readBoundHermeticBoundary(_stateDir, _runId, expectedSha256) {
+        boundaryReads += 1;
+        assert.equal(expectedSha256, boundarySha256);
+        return { boundary: { mode: "hermetic" }, sha256: boundarySha256 };
+      },
+      verifyAppliedProject: async () => true,
+      applyEvidenceBundle: async () => { applied = true; },
+    }),
+    (error) => error.code === "usage_error" && error.exitCode === 2,
+  );
+
+  assert.equal(boundaryReads, 1);
+  assert.equal(applied, false);
 });
 
 test("apply refuses a frozen manifest not bound by persisted state", async () => {

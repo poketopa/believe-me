@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { HERMETIC_REFUSAL_REASON_CODES } from "../../src/contracts/hermetic-boundary.js";
 import {
   applyEvidenceBundle,
   canonicalJSONLine,
@@ -95,6 +96,29 @@ function passedVerifier() {
   };
 }
 
+function hermeticBoundary() {
+  return {
+    schema_version: { major: 1 },
+    mode: "hermetic",
+    backend: {
+      kind: "bubblewrap",
+      runtime_identity: "bwrap-0.11.999",
+      image_digest: null,
+    },
+    platform: { host: "linux", supported_hosts: ["linux"] },
+    filesystem: {
+      workspace: "read-write",
+      root: "read-only",
+      host_home: "denied",
+      runtime_socket: "denied",
+    },
+    network: { mode: "none", ambient_egress: "denied" },
+    toolchain: { downloads: "denied", mutable_cache: "denied" },
+    cleanup: { owner: "backend", residue: "denied" },
+    refusal_reason_codes: [...HERMETIC_REFUSAL_REASON_CODES],
+  };
+}
+
 test("run reaches receipted with a non-empty apply-compatible candidate", async () => {
   const setup = await createRunSetup();
   const before = await createProjectSnapshot(setup.projectRoot);
@@ -155,6 +179,47 @@ test("verifier failure rejects the run, preserves source, and keeps failure evid
   assert.equal(JSON.parse(await readFile(join(paths.artifact_root, "verification.jsonl"), "utf8")).status, "failed");
   assert.equal(JSON.parse(await readFile(join(paths.artifact_root, "failure.jsonl"), "utf8")).phase, "verification");
   await assert.rejects(() => readFile(evidencePaths(paths.artifact_root).receipt));
+});
+
+test("hermetic run binds frozen authority and refuses before verifier execution", async () => {
+  const setup = await createRunSetup({
+    runId: "run-hermetic-refusal",
+    verifier: {
+      schema_version: { major: 1 },
+      adapter_id: "command-verifier",
+      command: "node",
+      args: ["--version"],
+      timeout_ms: 1_000,
+      max_output_bytes: 1_024,
+    },
+  });
+
+  await assert.rejects(
+    runDeterministicHarness({
+      runId: setup.runId,
+      runSpec: setup.runSpec,
+      hermeticBoundary: hermeticBoundary(),
+      issuedAt,
+      recordedAt,
+    }),
+    (error) =>
+      error.code === "safety_refusal" &&
+      [
+        "platform_unsupported",
+        "backend_missing",
+        "runtime_identity_mismatch",
+      ].includes(error.details.refusal.code),
+  );
+
+  const { state } = await readRunState(setup.stateDir, setup.runId);
+  assert.equal(state.lifecycle_state, "rejected");
+  assert.match(state.hermetic_boundary_sha256, /^[a-f0-9]{64}$/u);
+  const failure = JSON.parse(await readFile(
+    join(deterministicRunDebugPaths(setup.stateDir, setup.runId).artifact_root, "failure.jsonl"),
+    "utf8",
+  ));
+  assert.equal(failure.phase, "verification");
+  assert.equal(failure.code, "safety_refusal");
 });
 
 test("executor failure rejects the run without creating success evidence", async () => {

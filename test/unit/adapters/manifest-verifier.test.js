@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createManifestVerifier } from "../../../src/adapters/manifest-verifier.js";
+import { HERMETIC_REFUSAL_REASON_CODES } from "../../../src/contracts/hermetic-boundary.js";
 
 const schema_version = { major: 1 };
 
@@ -14,6 +15,29 @@ function manifest(overrides = {}) {
     input_schema_ref: "deterministic-executor-input/v1",
     policy_rules: {},
     ...overrides,
+  };
+}
+
+function hermeticBoundary() {
+  return {
+    schema_version: { major: 1 },
+    mode: "hermetic",
+    backend: {
+      kind: "bubblewrap",
+      runtime_identity: "bwrap-0.11.2",
+      image_digest: null,
+    },
+    platform: { host: "linux", supported_hosts: ["linux"] },
+    filesystem: {
+      workspace: "read-write",
+      root: "read-only",
+      host_home: "denied",
+      runtime_socket: "denied",
+    },
+    network: { mode: "none", ambient_egress: "denied" },
+    toolchain: { downloads: "denied", mutable_cache: "denied" },
+    cleanup: { owner: "backend", residue: "denied" },
+    refusal_reason_codes: [...HERMETIC_REFUSAL_REASON_CODES],
   };
 }
 
@@ -57,4 +81,38 @@ test("legacy v1 manifests retain the explicit Spring compatibility route", async
   const result = await verifier({ projectRoot: "/legacy-spring" });
   assert.equal(fixtureRoot, "/legacy-spring");
   assert.equal(result.adapter_id, "spring-verifier");
+});
+
+test("manifest composition carries explicit hermetic authority only to command verifier", async () => {
+  const boundary = hermeticBoundary();
+  let observed;
+  const verifier = createManifestVerifier(manifest({
+    verifier: {
+      schema_version,
+      adapter_id: "command-verifier",
+      command: "node",
+      args: ["--test"],
+      timeout_ms: 30_000,
+      max_output_bytes: 1_048_576,
+    },
+  }), {
+    hermeticBoundary: boundary,
+    hostPlatform: "linux",
+    inspectBackend: async () => ({ available: false }),
+    async runCommandVerifier(options) {
+      observed = options;
+      return { status: "passed" };
+    },
+  });
+
+  await verifier({ workspaceRoot: "/workspace" });
+  assert.deepEqual(observed.hermeticBoundary, boundary);
+  assert.equal(Object.isFrozen(observed.hermeticBoundary), true);
+  assert.equal(observed.hostPlatform, "linux");
+  assert.equal(typeof observed.inspectBackend, "function");
+
+  assert.throws(
+    () => createManifestVerifier(manifest(), { hermeticBoundary: boundary }),
+    /Hermetic Spring verification is not available/u,
+  );
 });

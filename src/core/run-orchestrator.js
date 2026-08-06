@@ -20,6 +20,7 @@ import {
 } from "../contracts/errors.js";
 import { validateRunSpec } from "../contracts/run-spec.js";
 import { validateSkillManifest } from "../contracts/skill-manifest.js";
+import { validateHermeticBoundary } from "../contracts/hermetic-boundary.js";
 import { verifierSpecFromManifest } from "../contracts/verifier.js";
 import {
   validateExecutorInput,
@@ -54,6 +55,10 @@ import {
   assertDeterministicResultMatchesWorkspace,
   createIsolatedWorkspace,
 } from "./workspace.js";
+import {
+  readBoundHermeticBoundary,
+  writeHermeticBoundary,
+} from "./hermetic-boundary.js";
 import {
   createOneAttemptRoutedExecutor,
   deriveRouteFeatures,
@@ -497,6 +502,11 @@ async function loadResumeContext(options) {
   assertArtifactRoot(suppliedStateDir, runId, state.artifact_root);
   const inputs = await readFrozenRunInputs(suppliedStateDir, runId);
   assertFrozenBindings(state, inputs);
+  const hermeticBoundary = await readBoundHermeticBoundary(
+    suppliedStateDir,
+    runId,
+    state.hermetic_boundary_sha256,
+  );
 
   const projectRoot = await canonicalProjectRoot(inputs.runSpec.value.project_path);
   const canonicalState = await canonicalStateDir(projectRoot, inputs.runSpec.value.state_dir);
@@ -516,6 +526,7 @@ async function loadResumeContext(options) {
     stateDir: suppliedStateDir,
     state,
     inputs,
+    hermeticBoundary,
     currentSnapshot,
     recordedAt: options.recordedAt ?? (() => new Date().toISOString()),
   };
@@ -655,11 +666,18 @@ async function executeRun(context, options) {
     throw error;
   }
 
-  const verifier = options.verifier ?? createManifestVerifier(
-    context.inputs.manifest.value,
-  );
   let verification;
   try {
+    if (context.hermeticBoundary !== null && options.verifier !== undefined) {
+      throw usageError("Hermetic runs do not accept an injected verifier.");
+    }
+    const verifierFactory = options.createManifestVerifier ?? createManifestVerifier;
+    const verifier = options.verifier ?? verifierFactory(
+      context.inputs.manifest.value,
+      context.hermeticBoundary === null
+        ? undefined
+        : { hermeticBoundary: context.hermeticBoundary.boundary },
+    );
     verification = await verifier({
       workspaceRoot,
       result,
@@ -736,6 +754,9 @@ export async function runHarness(options = {}) {
     throw usageError("Run options must be an object.");
   }
   const adaptiveLaunch = validatedAdaptiveLaunch(options.adaptiveLaunch);
+  const hermeticBoundary = options.hermeticBoundary === undefined
+    ? undefined
+    : validateHermeticBoundary(options.hermeticBoundary);
   const runId = validateRunId(options.runId);
   const rawSpec = validateRunSpec(options.runSpec);
 
@@ -857,6 +878,9 @@ export async function runHarness(options = {}) {
     workflowPlan,
     executorInput,
   });
+  const storedHermeticBoundary = hermeticBoundary === undefined
+    ? null
+    : await writeHermeticBoundary({ stateDir, runId, boundary: hermeticBoundary });
 
   const artifactRoot = runArtifactRoot(stateDir, runId);
   await mkdir(artifactRoot, { recursive: false, mode: 0o700 });
@@ -869,6 +893,9 @@ export async function runHarness(options = {}) {
     source_snapshot_sha256: sourceSnapshot.sha256,
     executor_kind: runSpec.executor_kind,
     artifact_root: artifactRoot,
+    ...(storedHermeticBoundary === null ? {} : {
+      hermetic_boundary_sha256: storedHermeticBoundary.sha256,
+    }),
   });
   const planned = await advanceStoredRunState(
     stateDir,
@@ -881,6 +908,11 @@ export async function runHarness(options = {}) {
     stateDir,
     state: planned.state,
     inputs: await readFrozenRunInputs(stateDir, runId),
+    hermeticBoundary: await readBoundHermeticBoundary(
+      stateDir,
+      runId,
+      storedHermeticBoundary?.sha256,
+    ),
     currentSnapshot: sourceSnapshot,
     recordedAt: options.recordedAt ?? (() => new Date().toISOString()),
   }, { ...options, executor: selectedExecutor });
@@ -933,6 +965,7 @@ export async function runOneAttemptRoutedHarness(options = {}) {
     runId: options.runId,
     runSpec: options.runSpec,
     adaptiveLaunch: options.adaptiveLaunch,
+    hermeticBoundary: options.hermeticBoundary,
     routeRequest: {
       policy: options.policy,
       riskTier: options.riskTier,
