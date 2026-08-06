@@ -1,17 +1,18 @@
 # Security policy
 
-Security fixes are provided for the latest `0.1.x` release.
+Security fixes are provided for the latest stable `0.2.x` release.
 
 ## Supported versions
 
 | Version | Supported |
 | --- | --- |
-| `0.1.x` | Yes |
-| `< 0.1.0` | No |
+| `0.2.x` | Yes |
+| `< 0.2.0` | No |
 
 Do not open a public issue for a vulnerability involving secret exposure,
-workspace escape, command injection, evidence forgery, or unsafe apply. Use
-GitHub's private vulnerability reporting after it is enabled for the repository.
+workspace escape, command injection, evidence forgery, or unsafe apply. Submit
+a private report through the repository's
+[private vulnerability reporting form](https://github.com/poketopa/believe-me/security/advisories/new).
 
 The security boundary includes source snapshots, allowed paths and commands,
 network policy, receipts, approvals, and atomic apply/rollback behavior.

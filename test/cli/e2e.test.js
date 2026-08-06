@@ -14,6 +14,9 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { sha256Hex } from "../../src/core/hash.js";
 import { createTerminalAdaptiveSession } from "../helpers/adaptive-session-fixture.js";
+import { isolateGradleUserHome } from "../helpers/isolated-gradle-user-home.js";
+
+isolateGradleUserHome("cli-e2e");
 
 const cliPath = resolve("bin/believeme.js");
 
