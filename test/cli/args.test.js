@@ -101,6 +101,62 @@ test("parses run-bound and portable evidence commands", () => {
   );
 });
 
+test("parses run-session with exact frozen launch inputs", () => {
+  assert.deepEqual(
+    parseCliArgs([
+      "run-session",
+      "session-1",
+      "--project",
+      "/repo",
+      "--skill",
+      "skill.json",
+      "--input",
+      "input.json",
+      "--policy",
+      "policy.json",
+      "--context",
+      "context.json",
+      "--risk-tier",
+      "low",
+      "--retry-codes",
+      "retry-codes.json",
+      "--state-dir",
+      "/repo/.harness",
+    ]),
+    {
+      command: "run-session",
+      project: "/repo",
+      skill: "skill.json",
+      input: "input.json",
+      policy: "policy.json",
+      context: "context.json",
+      riskTier: "low",
+      retryCodes: "retry-codes.json",
+      stateDir: "/repo/.harness",
+      runId: "session-1",
+    },
+  );
+});
+
+test("parses resume-session with only project and state directory", () => {
+  assert.deepEqual(
+    parseCliArgs([
+      "resume-session",
+      "session-1",
+      "--project",
+      "/repo",
+      "--state-dir",
+      "/repo/.harness",
+    ]),
+    {
+      command: "resume-session",
+      project: "/repo",
+      stateDir: "/repo/.harness",
+      runId: "session-1",
+    },
+  );
+});
+
 test("rejects unknown commands and flags with usage errors", () => {
   assert.throws(
     () => parseCliArgs(["unknown"]),
@@ -146,6 +202,131 @@ test("rejects duplicate flags missing values and flag equals syntax", () => {
         "/other",
       ]),
       /Duplicate flag/,
+    );
+  }
+});
+
+test("run-session rejects missing duplicate unknown extra flags and unsafe ids", () => {
+  assert.throws(
+    () => parseCliArgs([
+      "run-session",
+      "session-1",
+      "--project",
+      "/repo",
+      "--skill",
+      "skill.json",
+      "--input",
+      "input.json",
+      "--policy",
+      "policy.json",
+      "--context",
+      "context.json",
+    ]),
+    /Missing required flag '--risk-tier'/,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      "run-session",
+      "session-1",
+      "--project",
+      "/repo",
+      "--project",
+      "/other",
+      "--skill",
+      "skill.json",
+      "--input",
+      "input.json",
+      "--policy",
+      "policy.json",
+      "--context",
+      "context.json",
+      "--risk-tier",
+      "low",
+    ]),
+    /Duplicate flag/,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      "run-session",
+      "session-1",
+      "--project",
+      "/repo",
+      "--skill",
+      "skill.json",
+      "--input",
+      "input.json",
+      "--policy",
+      "policy.json",
+      "--context",
+      "context.json",
+      "--risk-tier",
+      "low",
+      "--model",
+      "gpt-5.5",
+    ]),
+    /Unknown flag/,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      "run-session",
+      "session-1",
+      "extra",
+      "--project",
+      "/repo",
+      "--skill",
+      "skill.json",
+      "--input",
+      "input.json",
+      "--policy",
+      "policy.json",
+      "--context",
+      "context.json",
+      "--risk-tier",
+      "low",
+    ]),
+    /positional argument count/,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      "run-session",
+      "../session-1",
+      "--project",
+      "/repo",
+      "--skill",
+      "skill.json",
+      "--input",
+      "input.json",
+      "--policy",
+      "policy.json",
+      "--context",
+      "context.json",
+      "--risk-tier",
+      "low",
+    ]),
+    /Invalid run id/,
+  );
+});
+
+test("resume-session rejects every authority override by flag admission", () => {
+  for (const flag of [
+    "--skill",
+    "--input",
+    "--policy",
+    "--context",
+    "--risk-tier",
+    "--retry-codes",
+    "--executor",
+    "--model",
+    "--reasoning",
+    "--route",
+  ]) {
+    assert.throws(
+      () => parseCliArgs(["resume-session", "session-1", flag, "override"]),
+      (error) =>
+        error.code === "usage_error" &&
+        error.exitCode === 2 &&
+        error.details.flag === flag,
+      flag,
     );
   }
 });
@@ -217,6 +398,8 @@ test("rejects unsafe run ids before path construction", () => {
     "review",
     "status-session",
     "review-session",
+    "run-session",
+    "resume-session",
     "export-bundle",
   ]) {
     for (const runId of ["../run-1", "nested/run-1", ".hidden", "-bad"]) {

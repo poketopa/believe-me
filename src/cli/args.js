@@ -36,6 +36,32 @@ const commands = Object.freeze({
     requiredFlags: Object.freeze([]),
     positionals: 1,
   }),
+  "run-session": Object.freeze({
+    flags: Object.freeze([
+      "project",
+      "skill",
+      "input",
+      "policy",
+      "context",
+      "risk-tier",
+      "retry-codes",
+      "state-dir",
+    ]),
+    requiredFlags: Object.freeze([
+      "project",
+      "skill",
+      "input",
+      "policy",
+      "context",
+      "risk-tier",
+    ]),
+    positionals: 1,
+  }),
+  "resume-session": Object.freeze({
+    flags: Object.freeze(["project", "state-dir"]),
+    requiredFlags: Object.freeze([]),
+    positionals: 1,
+  }),
   "export-bundle": Object.freeze({
     flags: Object.freeze(["output", "project", "state-dir"]),
     requiredFlags: Object.freeze(["output"]),
@@ -60,6 +86,7 @@ const commands = Object.freeze({
 
 const commandNames = Object.freeze(Object.keys(commands));
 const executors = Object.freeze(["deterministic", "codex"]);
+const riskTiers = Object.freeze(["low", "medium", "high"]);
 const sha256Pattern = /^[a-f0-9]{64}$/u;
 const runIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -131,6 +158,13 @@ function validateParsed(command, parsed) {
     throw usageError(`Unsupported executor '${parsed.executor}'.`, {
       executor: parsed.executor,
       supported: executors,
+    });
+  }
+
+  if (parsed.riskTier !== undefined && !riskTiers.includes(parsed.riskTier)) {
+    throw usageError(`Unsupported risk tier '${parsed.riskTier}'.`, {
+      risk_tier: parsed.riskTier,
+      supported: riskTiers,
     });
   }
 

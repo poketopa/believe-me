@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, readFile, symlink } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { executeCliCommand } from "../../src/cli/commands.js";
-import { sha256Hex } from "../../src/core/hash.js";
+import { createProjectSnapshot } from "../../src/core/snapshot.js";
+import {
+  sha256CanonicalJSON,
+  sha256CanonicalJSONLine,
+  sha256Hex,
+} from "../../src/core/hash.js";
 
 const hash = "a".repeat(64);
 const paddedHash = "b".repeat(64);
@@ -63,6 +68,108 @@ function reviewEvidence(overrides = {}) {
       ...overrides.result,
     },
   };
+}
+
+const digest = (value) => sha256Hex(Buffer.from(value, "utf8"));
+
+function contextPack(sourceSnapshotSha256 = digest("cli-session-snapshot")) {
+  const bytes = Buffer.from("export const fixture = true;\n", "utf8");
+  const policy = {
+    max_files: 1,
+    max_excerpts: 1,
+    max_total_bytes: 512,
+    max_file_bytes: 512,
+    max_source_file_bytes: 4096,
+  };
+  return {
+    schema_version: { major: 1 },
+    source_snapshot_sha256: sourceSnapshotSha256,
+    task_sha256: digest("cli-session-task"),
+    policy_sha256: sha256CanonicalJSON(policy),
+    policy,
+    selection_status: "matched",
+    fallback_reason: null,
+    truncated: false,
+    truncation_reasons: [],
+    omission_counts: {
+      binary: 0,
+      empty: 0,
+      excluded_path: 0,
+      oversized: 0,
+      secret_content: 0,
+    },
+    total_files: 1,
+    total_excerpts: 1,
+    total_bytes: bytes.byteLength,
+    entries: [{
+      path: "src/fixture.js",
+      source_sha256: digest("cli-session-source"),
+      reasons: ["text_match"],
+      excerpts: [{
+        start_byte: 0,
+        end_byte: bytes.byteLength,
+        content_base64: bytes.toString("base64"),
+        sha256: sha256Hex(bytes),
+        reasons: ["text_match"],
+      }],
+    }],
+  };
+}
+
+function sessionPolicy(adapterId = "codex-cli") {
+  return {
+    schema_version: { major: 1 },
+    policy_id: "cli-session-policy",
+    attempt_budget: 2,
+    token_budget: 1000,
+    wall_budget_ms: 10_000,
+    routes: [{
+      route_id: "initial",
+      reason: "initial",
+      adapter_id: adapterId,
+      model_id: "gpt-5.5",
+      reasoning_effort: "medium",
+      timeout_ms: 1000,
+    }],
+  };
+}
+
+function sessionManifest() {
+  return {
+    schema_version: { major: 1 },
+    manifest_id: "cli-session-skill",
+    name: "CLI session skill",
+    policy_id: "cli-session-policy",
+    executor_kinds: ["codex"],
+    input_schema_ref: "codex-task/v1",
+    policy_rules: {},
+  };
+}
+
+async function writeJson(path, value) {
+  await mkdir(join(path, ".."), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function writeSessionLaunchInputs(root, overrides = {}) {
+  const pack = contextPack(overrides.sourceSnapshotSha256);
+  const paths = {
+    manifest: join(root, "manifest.json"),
+    input: join(root, "input.json"),
+    policy: join(root, "policy.json"),
+    context: join(root, "context.json"),
+    retryCodes: join(root, "retry-codes.json"),
+  };
+  await writeJson(paths.manifest, overrides.manifest ?? sessionManifest());
+  await writeJson(paths.context, overrides.contextPack ?? pack);
+  await writeJson(paths.input, overrides.input ?? {
+    task: "Change src/fixture.js.",
+    allowed_paths: ["src/fixture.js"],
+    context_pack: overrides.contextPack ?? pack,
+  });
+  await writeJson(paths.policy, overrides.policy ?? sessionPolicy());
+  await writeJson(paths.retryCodes, overrides.retryCodes ?? ["ECONNRESET"]);
+  return paths;
 }
 
 test("init creates an idempotent project-local state config", async () => {
@@ -183,6 +290,314 @@ test("run wires the Codex adapter through the executor-neutral orchestrator", as
   });
   assert.equal(observed.runSpec.executor_kind, "codex");
   assert.equal(result.run_id, "run-codex");
+});
+
+test("run-session validates and freezes launch authority before adaptive delegation", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-control-"));
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/fixture.js"), "export const fixture = true;\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const files = await writeSessionLaunchInputs(controlRoot, {
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+  });
+  let observed;
+  const result = await executeCliCommand({
+    command: "run-session",
+    runId: "session-1",
+    project: projectRoot,
+    skill: files.manifest,
+    input: files.input,
+    policy: files.policy,
+    context: files.context,
+    riskTier: "low",
+    retryCodes: files.retryCodes,
+  }, {
+    async runAdaptiveSession(options) {
+      observed = options;
+      return {
+        session_receipt_sha256: paddedHash,
+        session: {
+          session_id: options.sessionId,
+          terminal_reason: "winner",
+          attempts: [{
+            attempt_index: 0,
+            child_run_id: "session-1-child-1",
+            child_run_evidence_sha256: hash,
+            route_id: "initial",
+            status: "completed",
+            verification_status: "passed",
+            winner: true,
+          }],
+        },
+      };
+    },
+  });
+
+  assert.equal(observed.sessionId, "session-1");
+  assert.equal(observed.stateDir, join(projectRoot, ".harness"));
+  assert.equal(observed.launch.session_id, "session-1");
+  assert.equal(observed.launch.project_path, projectRoot);
+  assert.equal(observed.launch.state_dir, join(projectRoot, ".harness"));
+  assert.equal(observed.launch.adapter_id, "codex-cli");
+  assert.equal(observed.launch.risk_tier, "low");
+  assert.deepEqual(observed.launch.transient_infra_retry_codes, ["ECONNRESET"]);
+  assert.deepEqual(observed.policy, observed.launch.policy);
+  assert.deepEqual(observed.contextPack, observed.launch.context_pack);
+  assert.equal(typeof observed.runAttempt, "function");
+  assert.deepEqual(result, {
+    session_id: "session-1",
+    terminal_reason: "winner",
+    attempt_count: 1,
+    winner_run_id: "session-1-child-1",
+    winner_receipt_sha256: hash,
+    session_receipt_sha256: paddedHash,
+    state_dir: join(projectRoot, ".harness"),
+  });
+});
+
+test("run-session child attempts report measured wall time", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-control-"));
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/fixture.js"), "export const fixture = true;\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const files = await writeSessionLaunchInputs(controlRoot, {
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+  });
+  const clock = [100, 137];
+  let attempt;
+
+  await executeCliCommand({
+    command: "run-session",
+    runId: "session-timing",
+    project: projectRoot,
+    skill: files.manifest,
+    input: files.input,
+    policy: files.policy,
+    context: files.context,
+    riskTier: "low",
+  }, {
+    now: () => clock.shift(),
+    createAdaptiveCodexRegistry: () => ({}),
+    async runOneAttemptRoutedHarness() {
+      return {
+        state: { receipt_sha256: hash },
+        evidence: {
+          receipt: { source_snapshot_sha256: sourceSnapshot.sha256 },
+          result: {},
+        },
+        route_selection: { route_id: "initial" },
+      };
+    },
+    async runAdaptiveSession(options) {
+      attempt = await options.runAttempt({
+        childRunId: "session-timing-child-1",
+        routeReason: "initial",
+      });
+      return {
+        session_receipt_sha256: paddedHash,
+        session: {
+          session_id: "session-timing",
+          terminal_reason: "winner",
+          attempts: [{
+            child_run_id: "session-timing-child-1",
+            child_run_evidence_sha256: hash,
+            winner: true,
+          }],
+        },
+      };
+    },
+  });
+
+  assert.equal(attempt.timing.wall_ms, 37);
+  assert.equal(attempt.failure_code, undefined);
+});
+
+test("run-session rejects non-codex adapters before child execution", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-control-"));
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/fixture.js"), "export const fixture = true;\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const files = await writeSessionLaunchInputs(controlRoot, {
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+    policy: sessionPolicy("other-adapter"),
+  });
+  let delegated = false;
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "run-session",
+      runId: "session-1",
+      project: projectRoot,
+      skill: files.manifest,
+      input: files.input,
+      policy: files.policy,
+      context: files.context,
+      riskTier: "low",
+    }, {
+      async runAdaptiveSession() {
+        delegated = true;
+      },
+    }),
+    (error) => error.code === "infra_error",
+  );
+  assert.equal(delegated, false);
+});
+
+test("run-session rejects retry codes that are duplicated or unsorted", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  const controlRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-control-"));
+  await mkdir(join(projectRoot, "src"));
+  await writeFile(join(projectRoot, "src/fixture.js"), "export const fixture = true;\n");
+  const sourceSnapshot = await createProjectSnapshot(projectRoot);
+  const files = await writeSessionLaunchInputs(controlRoot, {
+    sourceSnapshotSha256: sourceSnapshot.sha256,
+  });
+
+  for (const retryCodes of [
+    ["ECONNRESET", "ECONNRESET"],
+    ["ETIMEDOUT", "ECONNRESET"],
+  ]) {
+    await writeJson(files.retryCodes, retryCodes);
+    await assert.rejects(
+      () => executeCliCommand({
+        command: "run-session",
+        runId: "session-1",
+        project: projectRoot,
+        skill: files.manifest,
+        input: files.input,
+        policy: files.policy,
+        context: files.context,
+        riskTier: "low",
+        retryCodes: files.retryCodes,
+      }),
+      (error) => error.code === "usage_error" && /unique.*sorted/u.test(error.message),
+    );
+  }
+});
+
+test("run-session rejects an in-source state directory without creating it", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  const rejectedStateDir = join(projectRoot, "src", "session-state");
+  await mkdir(join(projectRoot, "src"));
+
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "run-session",
+      runId: "session-1",
+      project: projectRoot,
+      skill: "unused-manifest.json",
+      input: "unused-input.json",
+      policy: "unused-policy.json",
+      context: "unused-context.json",
+      riskTier: "low",
+      stateDir: rejectedStateDir,
+    }),
+    (error) => error.code === "safety_refusal" && /under '.harness'/u.test(error.message),
+  );
+  await assert.rejects(
+    () => lstat(rejectedStateDir),
+    (error) => error.code === "ENOENT",
+  );
+});
+
+test("resume-session uses the frozen launch and resumes through routed children", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  const stateDir = join(projectRoot, ".harness");
+  const launch = {
+    ...(() => {
+      const pack = contextPack();
+      const manifest = sessionManifest();
+      const input = {
+        task: "Change src/fixture.js.",
+        allowed_paths: ["src/fixture.js"],
+        context_pack: pack,
+      };
+      const policy = sessionPolicy();
+      return {
+        schema_version: { major: 1 },
+        session_id: "session-1",
+        project_path: projectRoot,
+        state_dir: stateDir,
+        skill_manifest: manifest,
+        skill_manifest_sha256: sha256CanonicalJSONLine(manifest),
+        task_input: input,
+        task_input_sha256: sha256CanonicalJSON(input),
+        policy,
+        policy_sha256: sha256CanonicalJSON(policy),
+        context_pack: pack,
+        context_pack_sha256: sha256CanonicalJSON(pack),
+        risk_tier: "low",
+        transient_infra_retry_codes: [],
+        adapter_id: "codex-cli",
+      };
+    })(),
+  };
+  let observed;
+  const result = await executeCliCommand({
+    command: "resume-session",
+    runId: "session-1",
+    project: projectRoot,
+  }, {
+    async readAdaptiveSessionLaunchForResume(observedStateDir, sessionId) {
+      assert.equal(observedStateDir, stateDir);
+      assert.equal(sessionId, "session-1");
+      return { launch, sha256: paddedHash };
+    },
+    async resumeAdaptiveSession(options) {
+      observed = options;
+      return {
+        session_receipt_sha256: paddedHash,
+        session: {
+          session_id: "session-1",
+          terminal_reason: "winner",
+          attempts: [{
+            attempt_index: 0,
+            child_run_id: "session-1-child-1",
+            child_run_evidence_sha256: hash,
+            route_id: "initial",
+            status: "completed",
+            verification_status: "passed",
+            winner: true,
+          }],
+        },
+      };
+    },
+  });
+
+  assert.equal(observed.sessionId, "session-1");
+  assert.equal(observed.stateDir, stateDir);
+  assert.equal(observed.launch, undefined);
+  assert.equal(observed.policy, undefined);
+  assert.equal(typeof observed.resumeAttempt, "function");
+  assert.equal(result.winner_run_id, "session-1-child-1");
+  assert.equal(result.state_dir, stateDir);
+});
+
+test("resume-session refuses legacy launch-less sessions before adaptive resume", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "vah-cli-session-project-"));
+  let resumed = false;
+  await assert.rejects(
+    () => executeCliCommand({
+      command: "resume-session",
+      runId: "legacy-session",
+      project: projectRoot,
+    }, {
+      async readAdaptiveSessionLaunchForResume() {
+        const error = new Error("Adaptive session has no launch contract bound for resume.");
+        error.code = "safety_refusal";
+        error.exitCode = 3;
+        throw error;
+      },
+      async resumeAdaptiveSession() {
+        resumed = true;
+      },
+    }),
+    (error) => error.code === "safety_refusal",
+  );
+  assert.equal(resumed, false);
 });
 
 test("status and receipt expose verified persisted data", async () => {

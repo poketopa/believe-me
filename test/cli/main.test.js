@@ -91,6 +91,8 @@ test("help and version remain plain text", async () => {
   assert.match(help.read(), /^BelieveMe \(@poketopa\/believe-me\)/);
   assert.match(help.read(), /believeme run/);
   assert.match(help.read(), /believeme review/);
+  assert.match(help.read(), /believeme run-session/);
+  assert.match(help.read(), /believeme resume-session/);
   assert.match(help.read(), /believeme status-session/);
   assert.match(help.read(), /believeme review-session/);
   assert.match(help.read(), /believeme export-bundle/);
@@ -100,4 +102,20 @@ test("help and version remain plain text", async () => {
   const version = sink();
   assert.equal(await runCli(["--version"], { stdout: version.stream }), 0);
   assert.equal(version.read(), "0.2.0\n");
+});
+
+test("bad session usage preserves JSONL error exit mapping", async () => {
+  const stdout = sink();
+  const stderr = sink();
+  const exitCode = await runCli(["resume-session", "session-1", "--skill", "x"], {
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+  });
+
+  assert.equal(exitCode, 2);
+  assert.equal(stdout.read(), "");
+  const payload = assertOneJsonLine(stderr.read());
+  assert.equal(payload.command, "resume-session");
+  assert.equal(payload.status, "error");
+  assert.equal(payload.error.code, "usage_error");
 });

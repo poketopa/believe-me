@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { safetyRefusal, usageError } from "../contracts/errors.js";
 import { validateRunSpec } from "../contracts/run-spec.js";
@@ -6,6 +6,9 @@ import { validateSkillManifest } from "../contracts/skill-manifest.js";
 import { validateWorkflowPlan } from "../contracts/workflow-plan.js";
 import { deepFreeze } from "../contracts/common.js";
 import { validateContextPack } from "../contracts/context-pack.js";
+import {
+  validateRouteSelection,
+} from "../contracts/execution-policy.js";
 import {
   validateExecutorInput,
   validateExecutorResult,
@@ -117,6 +120,23 @@ async function readCanonicalPair(paths, label) {
     throw safetyRefusal(`${label} is not canonical JSONL.`);
   }
   return Object.freeze({ value, sha256: actualSha256 });
+}
+
+async function optionalCanonicalPair(paths, label) {
+  const exists = await Promise.all([paths.body, paths.digest].map((path) =>
+    lstat(path).then((stats) => {
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw safetyRefusal(`${label} body/digest pair must be regular files.`);
+      }
+      return true;
+    }).catch((error) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    })));
+  if (exists[0] !== exists[1]) {
+    throw safetyRefusal(`${label} body/digest pair is incomplete.`);
+  }
+  return exists[0] ? readCanonicalPair(paths, label) : null;
 }
 
 export async function writeContextPackArtifact(artifactRoot, contextPack) {
@@ -255,4 +275,86 @@ export async function writeFailedRunEvidence(options) {
   }
   written.failure = await writeRunFailure(artifactRoot, failure);
   return Object.freeze(written);
+}
+
+function validateFailureArtifact(value, runId) {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.schema_version?.major !== 1 ||
+    value.run_id !== runId ||
+    typeof value.phase !== "string" ||
+    typeof value.code !== "string" ||
+    value.code.length === 0 ||
+    typeof value.message !== "string" ||
+    value.message.length === 0 ||
+    typeof value.recorded_at !== "string"
+  ) {
+    throw safetyRefusal("Failed run evidence is not a valid failure artifact.");
+  }
+  return deepFreeze(structuredClone(value));
+}
+
+function validateFailedVerification(value) {
+  if (value === null) {
+    return null;
+  }
+  if (
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.schema_version?.major !== 1 ||
+    typeof value.adapter_id !== "string" ||
+    value.adapter_id.length === 0 ||
+    value.status !== "failed"
+  ) {
+    throw safetyRefusal("Failed run verification is not a valid failed verifier artifact.");
+  }
+  return deepFreeze(structuredClone(value));
+}
+
+export async function readFailedRunEvidence({ stateDir, runId }) {
+  const frozen = await readFrozenRunInputs(stateDir, runId);
+  const artifactRoot = runArtifactRoot(stateDir, runId);
+  const failure = await readCanonicalPair(
+    pairPaths(artifactRoot, "failure.jsonl"),
+    "Run failure",
+  );
+  const result = await optionalCanonicalPair(
+    pairPaths(artifactRoot, "result.jsonl"),
+    "Failed run result",
+  );
+  const verification = await optionalCanonicalPair(
+    pairPaths(artifactRoot, "verification.jsonl"),
+    "Failed run verification",
+  );
+  const failureValue = validateFailureArtifact(failure.value, runId);
+  const resultValue = result === null
+    ? null
+    : validateExecutorResult(result.value, { persisted: true });
+  const verificationValue = validateFailedVerification(verification?.value ?? null);
+  if (resultValue !== null && resultValue.run_id !== runId) {
+    throw safetyRefusal("Failed run result is not bound to the failed child.");
+  }
+  const routeSelection = validateRouteSelection(
+    resultValue?.route_selection ?? frozen.workflowPlan.value.route_selection,
+    { persisted: true },
+  );
+  const sourceSnapshotSha256 = frozen.sourceSnapshot.value.sha256;
+  const candidateChanges = resultValue === null
+    ? []
+    : resultValue.changes.map(({ path, sha256 }) => Object.freeze({ path, sha256 }));
+  return Object.freeze({
+    failure: failureValue,
+    result: resultValue,
+    verification: verificationValue,
+    route_selection: routeSelection,
+    source_snapshot_sha256: sourceSnapshotSha256,
+    candidate_changes: Object.freeze(candidateChanges),
+    sha256: sha256CanonicalJSON({
+      failure: failureValue,
+      result: resultValue,
+      verification: verificationValue,
+    }),
+  });
 }

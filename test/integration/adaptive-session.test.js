@@ -475,6 +475,7 @@ test("resume continues from the next immutable child and refuses tampered attemp
     async resumeAttempt(request) {
       resumeCalls.push(request.attemptIndex);
       assert.equal(request.resumed, true);
+      assert.equal(request.childRunId, "session-resume-child-2");
       return terminalChildOutcome;
     },
   });
