@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   adaptiveSessionPaths,
+  canonicalJSONLine,
   createProjectSnapshot,
   executeCliCommand,
   readAdaptiveSession,
@@ -14,8 +15,17 @@ import {
   runAdaptiveSession,
   selectExecutionRoute,
   sha256CanonicalJSON,
+  sha256CanonicalJSONLine,
   sha256Hex,
 } from "../../src/index.js";
+import { readAdaptiveSessionStatus } from "../../src/core/adaptive-session.js";
+import {
+  adaptiveSessionLaunchPaths,
+  readAdaptiveSessionLaunchForResume,
+} from "../../src/core/adaptive-session-launch.js";
+import {
+  assertAdaptiveInputMatchesLaunch,
+} from "../../src/contracts/adaptive-session-launch.js";
 
 const digest = (value) => sha256Hex(Buffer.from(value, "utf8"));
 
@@ -142,6 +152,95 @@ function cost(amount = 0.10) {
     currency: "USD",
     pricing_source: "fixture-pricing",
   };
+}
+
+function launchContract(stateDir, sessionId, overrides = {}) {
+  const pack = contextPack();
+  const manifest = {
+    schema_version: { major: 1 },
+    manifest_id: "adaptive-launch",
+    name: "Adaptive launch fixture",
+    policy_id: "adaptive-fixture",
+    executor_kinds: ["codex"],
+    input_schema_ref: "codex-task/v1",
+    policy_rules: {},
+  };
+  const input = {
+    task: "Change src/app.js.",
+    allowed_paths: ["src/app.js"],
+    context_pack: pack,
+  };
+  const policy = executionPolicy({
+    routes: [{
+      route_id: "initial",
+      reason: "initial",
+      adapter_id: "codex-cli",
+      model_id: "gpt-5.5",
+      reasoning_effort: "medium",
+      timeout_ms: 1000,
+    }],
+  });
+  return {
+    schema_version: { major: 1 },
+    session_id: sessionId,
+    project_path: "/tmp/adaptive-launch-project",
+    state_dir: stateDir,
+    skill_manifest: manifest,
+    skill_manifest_sha256: sha256CanonicalJSONLine(manifest),
+    task_input: input,
+    task_input_sha256: sha256CanonicalJSON(input),
+    policy,
+    policy_sha256: sha256CanonicalJSON(policy),
+    context_pack: pack,
+    context_pack_sha256: sha256CanonicalJSON(pack),
+    risk_tier: "low",
+    transient_infra_retry_codes: ["ECONNRESET"],
+    adapter_id: "codex-cli",
+    ...overrides,
+  };
+}
+
+async function writeCanonicalPair(paths, value) {
+  const line = canonicalJSONLine(value);
+  const sha256 = sha256Hex(Buffer.from(line, "utf8"));
+  await writeFile(paths.body, line, { encoding: "utf8", mode: 0o600 });
+  await writeFile(paths.digest, `${sha256}\n`, { encoding: "utf8", mode: 0o600 });
+  return sha256;
+}
+
+function adaptiveInputFromLaunch(launch) {
+  return {
+    schema_version: { major: 1 },
+    session_id: launch.session_id,
+    policy: launch.policy,
+    policy_sha256: launch.policy_sha256,
+    context_pack: launch.context_pack,
+    context_pack_sha256: launch.context_pack_sha256,
+    transient_infra_retry_codes: launch.transient_infra_retry_codes,
+    launch_sha256: sha256CanonicalJSONLine(launch),
+  };
+}
+
+async function treeSnapshot(root) {
+  async function walk(path, prefix = "") {
+    const entries = await readdir(path, { withFileTypes: true }).catch((error) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const rows = [];
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      const fullPath = join(path, entry.name);
+      if (entry.isDirectory()) {
+        rows.push(`${relative}/`);
+        rows.push(...await walk(fullPath, relative));
+      } else {
+        rows.push(`${relative}:${await readFile(fullPath, "utf8")}`);
+      }
+    }
+    return rows;
+  }
+  return walk(root);
 }
 
 function outcome(request, policy, overrides = {}) {
@@ -634,4 +733,143 @@ test("adaptive session composes real atomic children and applies only the winner
   assert.equal(applied.run_id, "session-atomic-child-2");
   assert.equal(applied.lifecycle_state, "applied");
   assert.equal(await readFile(join(projectRoot, "src/app.txt"), "utf8"), "good\n");
+});
+
+test("CLI launch publication orders launch input then child claims", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "adaptive-launch-"));
+  const launch = launchContract(stateDir, "session-launch-order");
+  const observed = [];
+
+  const completed = await runAdaptiveSession({
+    sessionId: "session-launch-order",
+    stateDir,
+    policy: launch.policy,
+    contextPack: launch.context_pack,
+    transientInfraRetryCodes: launch.transient_infra_retry_codes,
+    launch,
+    async runAttempt(request) {
+      const paths = adaptiveSessionPaths(stateDir, "session-launch-order");
+      const launchPaths = adaptiveSessionLaunchPaths(paths);
+      observed.push({
+        launch: await readFile(launchPaths.body, "utf8"),
+        input: await readFile(paths.input.body, "utf8"),
+        claim: await readFile(join(paths.attempts, "claim-0000.jsonl"), "utf8"),
+        requestIndex: request.attemptIndex,
+      });
+      return outcome(request, launch.policy);
+    },
+  });
+
+  assert.equal(completed.session.attempts.length, 1);
+  assert.equal(observed.length, 1);
+  assert.equal(JSON.parse(observed[0].input).launch_sha256, sha256CanonicalJSONLine(launch));
+  assert.equal(JSON.parse(observed[0].claim).launch_sha256, sha256CanonicalJSONLine(launch));
+});
+
+test("launch orphan states refuse status review and resume without repair", async () => {
+  for (const orphan of ["root", "launch", "input"]) {
+    const stateDir = await mkdtemp(join(tmpdir(), "adaptive-launch-orphan-"));
+    const sessionId = `session-orphan-${orphan}`;
+    const paths = adaptiveSessionPaths(stateDir, sessionId);
+    const launchPaths = adaptiveSessionLaunchPaths(paths);
+    await mkdir(paths.root, { recursive: true });
+    const launch = launchContract(stateDir, sessionId);
+    if (["launch", "input"].includes(orphan)) {
+      await writeCanonicalPair(launchPaths, launch);
+    }
+    if (orphan === "input") {
+      await writeCanonicalPair(paths.input, adaptiveInputFromLaunch(launch));
+    }
+
+    const before = await treeSnapshot(paths.root);
+    await assert.rejects(
+      resumeAdaptiveSession({
+        sessionId,
+        stateDir,
+        resumeAttempt: async () => outcome({ childRunId: "unused", contextPack: launch.context_pack }, launch.policy),
+      }),
+      (error) => error.code === "safety_refusal" || error.code === "not_found",
+    );
+    await assert.rejects(
+      readAdaptiveSessionStatus(stateDir, sessionId),
+      (error) => error.code === "safety_refusal" || error.code === "not_found",
+    );
+    await assert.rejects(
+      executeCliCommand({
+        command: "review-session",
+        runId: sessionId,
+        project: "/tmp/adaptive-launch-project",
+        stateDir,
+      }),
+      (error) => error.code === "safety_refusal" || error.code === "not_found",
+    );
+    const after = await treeSnapshot(paths.root);
+    assert.deepEqual(after, before);
+  }
+});
+
+test("legacy launch-less adaptive sessions remain readable and library-resumable", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "adaptive-legacy-project-"));
+  const stateDir = join(projectRoot, ".harness");
+  const policy = executionPolicy();
+  const completed = await runAdaptiveSession({
+    sessionId: "legacy-session",
+    stateDir,
+    policy,
+    contextPack: contextPack(),
+    runAttempt: async (request) => outcome(request, policy),
+  });
+
+  assert.equal((await readAdaptiveSession(stateDir, "legacy-session")).session_receipt_sha256, completed.session_receipt_sha256);
+  assert.equal((await resumeAdaptiveSession({
+    sessionId: "legacy-session",
+    stateDir,
+    resumeAttempt: async () => {},
+  })).session_receipt_sha256, completed.session_receipt_sha256);
+  await assert.rejects(
+    readAdaptiveSessionLaunchForResume(stateDir, "legacy-session"),
+    (error) => error.code === "safety_refusal" && /launch contract/u.test(error.message),
+  );
+});
+
+test("launch remains sole authority for adaptive input drift", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "adaptive-launch-drift-"));
+  const sessionId = "session-launch-drift";
+  const launch = launchContract(stateDir, sessionId);
+  await assert.rejects(
+    runAdaptiveSession({
+      sessionId,
+      stateDir,
+      policy: launch.policy,
+      contextPack: launch.context_pack,
+      transientInfraRetryCodes: launch.transient_infra_retry_codes,
+      launch,
+      runAttempt: async () => {
+        throw new Error("simulated interruption after launch binding");
+      },
+    }),
+    /simulated interruption/u,
+  );
+  const paths = adaptiveSessionPaths(stateDir, sessionId);
+  const input = JSON.parse(await readFile(paths.input.body, "utf8"));
+  await writeCanonicalPair(paths.input, {
+    ...input,
+    policy_sha256: digest("policy-drift"),
+  });
+
+  await assert.rejects(
+    resumeAdaptiveSession({
+      sessionId,
+      stateDir,
+      resumeAttempt: async () => {},
+    }),
+    /launch|drift|mismatch/u,
+  );
+  assert.throws(
+    () => assertAdaptiveInputMatchesLaunch({
+      ...input,
+      policy_sha256: digest("policy-drift"),
+    }, launch),
+    /launch|drift|mismatch/u,
+  );
 });

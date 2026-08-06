@@ -228,6 +228,16 @@ stored content binding only: non-winning attempt hashes remain session-bound
 pointers, and neither command proves identity, freshness, attestation, or a new
 verifier execution.
 
+CLI-created adaptive execution is being introduced in separately reviewed
+stages. The internal launch boundary now freezes the canonical project/state
+paths, skill manifest, Codex task input, execution policy, ContextPack, risk
+tier, retry allowlist, and `codex-cli` adapter before any adaptive child claim.
+The selected model and reasoning aliases are admitted only from that frozen
+policy and are passed to the existing Codex transport as exact configuration.
+This does not yet expose `run-session` or `resume-session`; existing
+library-created sessions without a launch binding remain readable and
+applicable.
+
 `believeme export-bundle` writes the same validated stored evidence as one
 deterministic canonical JSONL file. The output contains candidate source bytes
 in base64, so export is explicit, refuses overwrite, and creates the file with

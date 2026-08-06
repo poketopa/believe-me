@@ -75,6 +75,15 @@ a completed session, validates its input/attempt/final bindings, and validates
 the winning child receipt when present. The result is stored evidence review,
 not provider identity, freshness, attestation, or independent re-execution.
 
+The adaptive CLI launch authority is staged separately from execution commands.
+`AdaptiveSessionLaunch` is an internal canonical JSONL/digest record that binds
+the project and state paths, skill manifest, Codex input, execution policy,
+ContextPack, risk tier, retry allowlist, and the fixed `codex-cli` adapter before
+derived adaptive input or child claims can exist. Its policy is also the sole
+source of admitted model and reasoning aliases for Codex transport composition.
+Legacy library sessions remain compatible, while future CLI resume requires an
+exact launch binding. No session run or resume command is exposed by this stage.
+
 ## Verifier selection
 
 `SkillManifest.verifier` is an optional versioned descriptor. New manifests can
