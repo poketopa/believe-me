@@ -74,8 +74,9 @@ function assertExactFields(value, fields, label) {
 }
 
 function validateBackend(value) {
-  const fields = ["kind", "runtime_identity", "image_digest"];
-  assertRequiredFields(value, fields, "HermeticBoundary backend");
+  const requiredFields = ["kind", "runtime_identity", "image_digest"];
+  const fields = [...requiredFields, "service_image_digest"];
+  assertRequiredFields(value, requiredFields, "HermeticBoundary backend");
   assertExactFields(value, fields, "HermeticBoundary backend");
   assertEnum(value.kind, "backend.kind", HERMETIC_BACKEND_KINDS);
   assertString(value.runtime_identity, "backend.runtime_identity");
@@ -87,15 +88,29 @@ function validateBackend(value) {
   if (value.kind === "bubblewrap" && value.image_digest !== null) {
     throw usageError("bubblewrap boundaries must not declare an OCI image digest.");
   }
+  if (value.kind === "bubblewrap" && value.service_image_digest !== undefined) {
+    throw usageError("bubblewrap boundaries must not declare an OCI service image digest.");
+  }
   if (value.kind === "rootless-oci" && !OCI_DIGEST_PATTERN.test(value.image_digest ?? "")) {
     throw usageError("rootless-oci boundaries require an immutable image digest.", {
       field: "backend.image_digest",
+    });
+  }
+  if (
+    value.service_image_digest !== undefined &&
+    !OCI_DIGEST_PATTERN.test(value.service_image_digest)
+  ) {
+    throw usageError("backend.service_image_digest must be an immutable image digest.", {
+      field: "backend.service_image_digest",
     });
   }
   return deepFreeze({
     kind: value.kind,
     runtime_identity: value.runtime_identity,
     image_digest: value.image_digest,
+    ...(value.service_image_digest === undefined ? {} : {
+      service_image_digest: value.service_image_digest,
+    }),
   });
 }
 
@@ -142,7 +157,7 @@ function validateFixedPolicy(value, fields, expected, label) {
   return deepFreeze({ ...expected });
 }
 
-function validateNetwork(value, backendKind) {
+function validateNetwork(value, backend) {
   const fields = ["mode", "ambient_egress"];
   assertRequiredFields(value, fields, "HermeticBoundary network");
   assertExactFields(value, fields, "HermeticBoundary network");
@@ -150,8 +165,26 @@ function validateNetwork(value, backendKind) {
   if (value.ambient_egress !== "denied") {
     throw usageError("network.ambient_egress must be 'denied'.");
   }
-  if (backendKind === "bubblewrap" && value.mode !== "none") {
+  if (backend.kind === "bubblewrap" && value.mode !== "none") {
     throw usageError("bubblewrap boundaries do not support service networking.");
+  }
+  if (
+    backend.kind === "rootless-oci" &&
+    value.mode === "isolated-service" &&
+    backend.service_image_digest === undefined
+  ) {
+    throw usageError(
+      "isolated-service boundaries require an immutable OCI service image digest.",
+    );
+  }
+  if (
+    backend.kind === "rootless-oci" &&
+    value.mode === "none" &&
+    backend.service_image_digest !== undefined
+  ) {
+    throw usageError(
+      "network-none boundaries must not declare an OCI service image digest.",
+    );
   }
   return deepFreeze({ mode: value.mode, ambient_egress: "denied" });
 }
@@ -175,7 +208,7 @@ export function validateHermeticBoundary(value, options = {}) {
     },
     "HermeticBoundary filesystem",
   );
-  const network = validateNetwork(value.network, backend.kind);
+  const network = validateNetwork(value.network, backend);
   const toolchain = validateFixedPolicy(
     value.toolchain,
     ["downloads", "mutable_cache"],

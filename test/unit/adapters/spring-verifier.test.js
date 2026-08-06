@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { chmod, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  realpath,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { HERMETIC_REFUSAL_REASON_CODES } from "../../../src/contracts/hermetic-boundary.js";
 import {
   SPRING_VERIFIER_ADAPTER_ID,
   runSpringVerifier,
@@ -19,6 +28,29 @@ const fixture = {
     args: ["--no-daemon", "--console=plain", "-q", "test"],
   },
 };
+
+function rootlessOciBoundary() {
+  return {
+    schema_version: { major: 1 },
+    mode: "hermetic",
+    backend: {
+      kind: "rootless-oci",
+      runtime_identity: "podman-5.2.2",
+      image_digest: `sha256:${"a".repeat(64)}`,
+    },
+    platform: { host: "linux", supported_hosts: ["linux"] },
+    filesystem: {
+      workspace: "read-write",
+      root: "read-only",
+      host_home: "denied",
+      runtime_socket: "denied",
+    },
+    network: { mode: "none", ambient_egress: "denied" },
+    toolchain: { downloads: "denied", mutable_cache: "denied" },
+    cleanup: { owner: "backend", residue: "denied" },
+    refusal_reason_codes: [...HERMETIC_REFUSAL_REASON_CODES],
+  };
+}
 
 test("spring verifier spawns exact argv directly without shell", async () => {
   const root = await fixtureRoot();
@@ -56,6 +88,108 @@ test("spring verifier spawns exact argv directly without shell", async () => {
   assert.equal(Object.hasOwn(result, "duration_ms"), false);
   assert.equal(Object.hasOwn(result, "stdout"), false);
   assert.equal(Object.hasOwn(result, "stderr"), false);
+});
+
+test("hermetic Spring verifier uses only the inspected Podman backend and cleans it", async () => {
+  const root = await fixtureRoot();
+  const inspected = await podmanCapability();
+  const backendCalls = [];
+  const spawnCalls = [];
+
+  const result = await runSpringVerifier({
+    fixtureRoot: root,
+    hermeticBoundary: rootlessOciBoundary(),
+    hostPlatform: "linux",
+    inspectBackend: async () => inspected,
+    backendExecFile: successfulBackendExec(backendCalls),
+    nameFactory: () => "believe-me-verifier",
+    spawnImpl(command, args, options) {
+      spawnCalls.push({ command, args, options });
+      return childProcess({ stdout: "ok\n" });
+    },
+  });
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].command, inspected.executable);
+  assert.deepEqual(spawnCalls[0].args.slice(0, 8), [
+    "run",
+    "--name",
+    "believe-me-verifier",
+    "--rm",
+    "--init",
+    "--pull=never",
+    "--network",
+    "none",
+  ]);
+  assert.equal(spawnCalls[0].args.includes("./gradlew"), true);
+  assert.deepEqual(spawnCalls[0].options.env, {
+    LC_ALL: "C",
+    PATH: `${join(inspected.executable, "..")}:/usr/bin:/bin`,
+  });
+  assert.equal(Object.hasOwn(spawnCalls[0].options.env, "GITHUB_TOKEN"), false);
+  assert.equal(result.adapter_id, SPRING_VERIFIER_ADAPTER_ID);
+  assert.deepEqual(result.argv, [
+    "./gradlew",
+    "--no-daemon",
+    "--console=plain",
+    "-q",
+    "test",
+  ]);
+  assert.equal(backendCalls.some((args) => args[0] === "rm"), true);
+  assert.equal(backendCalls.some((args) => args[0] === "ps"), true);
+});
+
+test("hermetic Spring refusal occurs before spawn with no direct fallback", async () => {
+  const root = await fixtureRoot();
+  let spawnCount = 0;
+
+  await assert.rejects(
+    runSpringVerifier({
+      fixtureRoot: root,
+      hermeticBoundary: rootlessOciBoundary(),
+      hostPlatform: "linux",
+      inspectBackend: async () => ({ available: false }),
+      spawnImpl() {
+        spawnCount += 1;
+        return childProcess();
+      },
+    }),
+    (error) => error.code === "safety_refusal" &&
+      error.details.refusal.code === "backend_missing",
+  );
+  assert.equal(spawnCount, 0);
+});
+
+test("hermetic Spring timeout invokes backend-owned cleanup", async () => {
+  const root = await fixtureRoot();
+  const inspected = await podmanCapability();
+  const backendCalls = [];
+
+  await assert.rejects(
+    runSpringVerifier({
+      fixtureRoot: root,
+      hermeticBoundary: rootlessOciBoundary(),
+      hostPlatform: "linux",
+      inspectBackend: async () => inspected,
+      backendExecFile: successfulBackendExec(backendCalls),
+      nameFactory: () => "believe-me-verifier",
+      timeoutMs: 1,
+      spawnImpl() {
+        const child = new EventEmitter();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.kill = (signal) => {
+          child.emit("close", null, signal);
+          return true;
+        };
+        return child;
+      },
+    }),
+    (error) => error.code === "verification_failed" &&
+      error.details.result.timed_out === true,
+  );
+  assert.equal(backendCalls.some((args) => args[0] === "rm"), true);
+  assert.equal(backendCalls.some((args) => args[0] === "ps"), true);
 });
 
 test("spring verifier validates fixture schema and exact command", async () => {
@@ -344,6 +478,37 @@ function childProcess({ stdout = "", stderr = "", exitCode = 0, signal = null } 
     }
   });
   return child;
+}
+
+async function podmanCapability() {
+  const root = await mkdtemp(join(tmpdir(), "spring-podman-"));
+  const executable = join(root, "podman");
+  await writeFile(executable, "podman");
+  await chmod(executable, 0o755);
+  const stats = await lstat(executable, { bigint: true });
+  return {
+    available: true,
+    executable,
+    runtime_identity: "podman-5.2.2",
+    host_platform: "linux",
+    file_identity: {
+      device: stats.dev.toString(),
+      inode: stats.ino.toString(),
+      size: stats.size.toString(),
+      modified_ns: stats.mtimeNs.toString(),
+    },
+  };
+}
+
+function successfulBackendExec(calls) {
+  return (_command, args, _options, callback) => {
+    calls.push([...args]);
+    if (args[0] === "ps") {
+      callback(null, "", "");
+      return;
+    }
+    callback(null, "", "");
+  };
 }
 
 function assertFrozenTree(value) {
