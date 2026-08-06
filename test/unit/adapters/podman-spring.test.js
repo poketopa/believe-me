@@ -71,21 +71,6 @@ async function executable() {
   return path;
 }
 
-async function available(path = "/usr/bin/podman") {
-  return {
-    available: true,
-    executable: path,
-    runtime_identity: "podman-5.2.2",
-    host_platform: "linux",
-    file_identity: {
-      device: "1",
-      inode: "2",
-      size: "3",
-      modified_ns: "4",
-    },
-  };
-}
-
 async function availableFromFile() {
   const path = await executable();
   const resolved = await realpath(path);

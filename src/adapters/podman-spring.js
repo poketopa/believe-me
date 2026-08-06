@@ -89,7 +89,7 @@ function execFileBounded(execFileImpl, command, args, options = {}) {
 async function probe(execFileImpl, command, args, options = {}) {
   try {
     const output = await execFileBounded(execFileImpl, command, args, options);
-    if (options.allowStderr !== true && output.stderr !== "") return null;
+    if (output.stderr !== "") return null;
     return output.stdout;
   } catch {
     return null;
