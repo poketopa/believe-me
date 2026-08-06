@@ -174,12 +174,12 @@ test("npm tarball installs with a working executable", async () => {
     [
       "--input-type=module",
       "-e",
-      "import * as api from '@poketopa/believe-me'; console.log(Object.hasOwn(api, 'buildPortableEvidenceBundle'), Object.hasOwn(api, 'readPortableEvidenceBundle'), Object.hasOwn(api, 'validateAdaptiveSessionLaunch'), Object.hasOwn(api, 'readAdaptiveSessionLaunch'), Object.hasOwn(api, 'createAdaptiveCodexRegistry'));",
+      "import * as api from '@poketopa/believe-me'; console.log(Object.hasOwn(api, 'buildPortableEvidenceBundle'), Object.hasOwn(api, 'readPortableEvidenceBundle'), Object.hasOwn(api, 'validateAdaptiveSessionLaunch'), Object.hasOwn(api, 'readAdaptiveSessionLaunch'), Object.hasOwn(api, 'createAdaptiveCodexRegistry'), Object.hasOwn(api, 'validateHermeticBoundary'), Object.hasOwn(api, 'readHermeticBoundary'));",
     ],
     { cwd: installRoot, env: process.env },
   );
   assert.equal(internalBoundary.code, 0, internalBoundary.stderr);
-  assert.equal(internalBoundary.stdout, "false false false false false\n");
+  assert.equal(internalBoundary.stdout, "false false false false false false false\n");
 
   const fixtureRoot = resolve("test/fixtures/node-reservation-policy");
   const projectRoot = join(installRoot, "node-reservation-policy");
