@@ -10,6 +10,10 @@ import {
 import { validateContextPack } from "../contracts/context-pack.js";
 import { validateExecutionPolicy, validateRouteSelection } from "../contracts/execution-policy.js";
 import {
+  assertAdaptiveInputMatchesLaunch,
+  validateAdaptiveSessionLaunch,
+} from "../contracts/adaptive-session-launch.js";
+import {
   infraError,
   notFound,
   safetyRefusal,
@@ -20,6 +24,11 @@ import { canonicalJSONLine, canonicalJSONLineBytes } from "./canonical-json.js";
 import { sha256CanonicalJSON, sha256Hex } from "./hash.js";
 import { containsLikelyCredential } from "./secrets.js";
 import { normalizeRelativePath, readRegularFileNoFollow } from "./snapshot.js";
+import {
+  readAdaptiveSessionLaunch,
+  readBoundAdaptiveSessionLaunch,
+  writeAdaptiveSessionLaunch,
+} from "./adaptive-session-launch.js";
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const SHA256_LINE_PATTERN = /^[a-f0-9]{64}\n$/u;
@@ -73,6 +82,9 @@ function claimValue(request, input) {
       : sha256CanonicalJSON(request.retryContext),
     policy_sha256: input.policy_sha256,
     context_pack_sha256: input.context_pack_sha256,
+    ...(input.launch_sha256 === undefined ? {} : {
+      launch_sha256: input.launch_sha256,
+    }),
   });
 }
 
@@ -600,11 +612,43 @@ function validateInput(value) {
     context_pack: contextPack,
     context_pack_sha256: sha256CanonicalJSON(contextPack),
     transient_infra_retry_codes: transientCodes,
+    ...(value.launch_sha256 === undefined ? {} : {
+      launch_sha256: value.launch_sha256,
+    }),
   });
+  if (value.launch_sha256 !== undefined && !/^[a-f0-9]{64}$/u.test(value.launch_sha256)) {
+    throw safetyRefusal("Adaptive session input launch_sha256 is invalid.");
+  }
   if (sha256CanonicalJSON(validated) !== sha256CanonicalJSON(value)) {
     throw safetyRefusal("Adaptive session input contains unsupported or drifted fields.");
   }
   return validated;
+}
+
+async function readLaunchBoundInput(paths, sessionId) {
+  const storedLaunch = await readAdaptiveSessionLaunch(paths, { required: false });
+  if (storedLaunch !== null && !await pairExists(paths.input)) {
+    throw safetyRefusal("Adaptive launch cannot authorize execution without input binding.");
+  }
+  const input = validateInput((await readRequiredPair(
+    paths.input,
+    "Adaptive session input",
+    () => notFound("Adaptive session input does not exist.", {
+      session_id: validateSessionId(sessionId),
+    }),
+  )).value);
+  if (storedLaunch !== null && input.launch_sha256 === undefined) {
+    throw safetyRefusal("Adaptive launch cannot authorize execution without input binding.");
+  }
+  await readBoundAdaptiveSessionLaunch(paths, input);
+  if (storedLaunch !== null) {
+    await assertRealDirectory(
+      paths.attempts,
+      "Adaptive session attempts directory",
+      () => safetyRefusal("Adaptive launch initialization is incomplete."),
+    );
+  }
+  return input;
 }
 
 function indexedPairStatus(names, prefix) {
@@ -660,6 +704,7 @@ function validateAttemptClaim(
     value.child_run_id.length === 0 ||
     value.policy_sha256 !== input.policy_sha256 ||
     value.context_pack_sha256 !== input.context_pack_sha256 ||
+    value.launch_sha256 !== input.launch_sha256 ||
     value.retry_context_sha256 !== expectedRetryDigest ||
     value.route_reason !== expectedRouteReason ||
     !input.policy.routes.some((route) => route.reason === value.route_reason)
@@ -1025,11 +1070,46 @@ async function executeAdaptive(options, resume) {
     throw usageError("runAttempt must be a function.");
   }
   const paths = adaptiveSessionPaths(options.stateDir, options.sessionId);
+  const launch = options.launch === undefined
+    ? null
+    : validateAdaptiveSessionLaunch(options.launch);
+  if (launch !== null) {
+    if (launch.session_id !== validateSessionId(options.sessionId)) {
+      throw safetyRefusal("Launch session_id does not match requested adaptive session.");
+    }
+    if (launch.state_dir !== resolve(options.stateDir)) {
+      throw safetyRefusal("Launch state_dir does not match requested adaptive session.");
+    }
+    if (resume) {
+      throw usageError("resumeAdaptiveSession does not accept a new launch contract.");
+    }
+  }
+  let newSessionInput = null;
+  if (!resume) {
+    const launchSha256 = launch === null
+      ? undefined
+      : sha256Hex(Buffer.from(canonicalJSONLine(launch), "utf8"));
+    newSessionInput = validateInput({
+      schema_version: { major: 1 },
+      session_id: options.sessionId,
+      policy: options.policy,
+      policy_sha256: sha256CanonicalJSON(validateExecutionPolicy(options.policy)),
+      context_pack: options.contextPack,
+      context_pack_sha256: sha256CanonicalJSON(validateContextPack(options.contextPack)),
+      transient_infra_retry_codes: validateStringSet(
+        options.transientInfraRetryCodes ?? [],
+        "transientInfraRetryCodes",
+      ),
+      ...(launchSha256 === undefined ? {} : { launch_sha256: launchSha256 }),
+    });
+    if (launch !== null) {
+      assertAdaptiveInputMatchesLaunch(newSessionInput, launch);
+    }
+  }
   await ensureSessionRoots(options.stateDir);
   let input;
   if (resume) {
-    const stored = await readPair(paths.input, "Adaptive session input");
-    input = validateInput(stored.value);
+    input = await readLaunchBoundInput(paths, options.sessionId);
     if (options.policy !== undefined &&
       sha256CanonicalJSON(validateExecutionPolicy(options.policy)) !== input.policy_sha256) {
       throw safetyRefusal("Resume policy does not match frozen session input.");
@@ -1053,20 +1133,12 @@ async function executeAdaptive(options, resume) {
       }
       throw error;
     });
-    await mkdir(paths.attempts, { recursive: false, mode: 0o700 });
-    input = validateInput({
-      schema_version: { major: 1 },
-      session_id: options.sessionId,
-      policy: options.policy,
-      policy_sha256: sha256CanonicalJSON(validateExecutionPolicy(options.policy)),
-      context_pack: options.contextPack,
-      context_pack_sha256: sha256CanonicalJSON(validateContextPack(options.contextPack)),
-      transient_infra_retry_codes: validateStringSet(
-        options.transientInfraRetryCodes ?? [],
-        "transientInfraRetryCodes",
-      ),
-    });
+    if (launch !== null) {
+      await writeAdaptiveSessionLaunch(paths, launch);
+    }
+    input = newSessionInput;
     await writePair(paths.input, input);
+    await mkdir(paths.attempts, { recursive: false, mode: 0o700 });
   }
   const lock = await acquireSessionLock(paths);
   try {
@@ -1086,13 +1158,7 @@ export async function resumeAdaptiveSession(options = {}) {
 
 export async function readAdaptiveSession(stateDir, sessionId) {
   const paths = await assertExistingSessionPaths(stateDir, sessionId);
-  const input = validateInput((await readRequiredPair(
-    paths.input,
-    "Adaptive session input",
-    () => notFound("Adaptive session input does not exist.", {
-      session_id: validateSessionId(sessionId),
-    }),
-  )).value);
+  const input = await readLaunchBoundInput(paths, sessionId);
   const [hasFinal, hasFailure] = await Promise.all([
     pairExists(paths.final),
     pairExists(paths.failure),
@@ -1110,13 +1176,7 @@ export async function readAdaptiveSession(stateDir, sessionId) {
 
 export async function readAdaptiveSessionStatus(stateDir, sessionId) {
   const paths = await assertExistingSessionPaths(stateDir, sessionId);
-  const input = validateInput((await readRequiredPair(
-    paths.input,
-    "Adaptive session input",
-    () => notFound("Adaptive session input does not exist.", {
-      session_id: validateSessionId(sessionId),
-    }),
-  )).value);
+  const input = await readLaunchBoundInput(paths, sessionId);
   const [hasFinal, hasFailure] = await Promise.all([
     pairExists(paths.final),
     pairExists(paths.failure),

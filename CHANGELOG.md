@@ -19,6 +19,10 @@ Release.
 - Read-only `status-session` and `review-session` CLI commands for validated
   adaptive-session state, ordered attempt bindings, and winning-child receipt
   review without execution, resume, apply, or filesystem repair.
+- An internal, canonical `AdaptiveSessionLaunch` authority and fixed
+  `codex-cli` route composition boundary that freeze launch inputs and exact
+  model/reasoning selection before future CLI session execution. No new
+  run/resume command is exposed in this change.
 
 ## [0.2.0] - 2026-08-06
 
