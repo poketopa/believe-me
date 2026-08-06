@@ -41,6 +41,18 @@ function hermeticBoundary() {
   };
 }
 
+function rootlessOciBoundary() {
+  return {
+    ...hermeticBoundary(),
+    backend: {
+      kind: "rootless-oci",
+      runtime_identity: "podman-5.2.2",
+      image_digest: `sha256:${"a".repeat(64)}`,
+    },
+    platform: { host: "linux", supported_hosts: ["linux"] },
+  };
+}
+
 test("manifest verifier routes explicit command specs with frozen argv", async () => {
   let observed;
   const verifier = createManifestVerifier(manifest({
@@ -83,7 +95,7 @@ test("legacy v1 manifests retain the explicit Spring compatibility route", async
   assert.equal(result.adapter_id, "spring-verifier");
 });
 
-test("manifest composition carries explicit hermetic authority only to command verifier", async () => {
+test("manifest composition carries explicit hermetic authority to command verifier", async () => {
   const boundary = hermeticBoundary();
   let observed;
   const verifier = createManifestVerifier(manifest({
@@ -110,9 +122,32 @@ test("manifest composition carries explicit hermetic authority only to command v
   assert.equal(Object.isFrozen(observed.hermeticBoundary), true);
   assert.equal(observed.hostPlatform, "linux");
   assert.equal(typeof observed.inspectBackend, "function");
+});
 
-  assert.throws(
-    () => createManifestVerifier(manifest(), { hermeticBoundary: boundary }),
-    /Hermetic Spring verification is not available/u,
-  );
+test("manifest composition carries frozen rootless OCI authority only to Spring verifier", async () => {
+  const boundary = rootlessOciBoundary();
+  const inspectSpringBackend = async () => ({ available: false });
+  const backendExecFile = async () => ({ stdout: "", stderr: "" });
+  const nameFactory = () => "fixed-name";
+  let observed;
+  const verifier = createManifestVerifier(manifest(), {
+    hermeticBoundary: boundary,
+    hostPlatform: "linux",
+    inspectSpringBackend,
+    backendExecFile,
+    nameFactory,
+    runCommandVerifier: async () => assert.fail("Command verifier must not run"),
+    async runSpringVerifier(options) {
+      observed = options;
+      return { status: "passed" };
+    },
+  });
+
+  await verifier({ workspaceRoot: "/workspace" });
+  assert.deepEqual(observed.hermeticBoundary, boundary);
+  assert.equal(Object.isFrozen(observed.hermeticBoundary), true);
+  assert.equal(observed.hostPlatform, "linux");
+  assert.equal(observed.inspectBackend, inspectSpringBackend);
+  assert.equal(observed.backendExecFile, backendExecFile);
+  assert.equal(observed.nameFactory, nameFactory);
 });

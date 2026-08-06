@@ -47,12 +47,14 @@ test("hermetic boundary accepts immutable rootless OCI identity", () => {
       kind: "rootless-oci",
       runtime_identity: "podman-5.2.2",
       image_digest: `sha256:${"a".repeat(64)}`,
+      service_image_digest: `sha256:${"b".repeat(64)}`,
     },
     platform: { host: "darwin", supported_hosts: ["darwin", "linux"] },
     network: { mode: "isolated-service", ambient_egress: "denied" },
   }));
 
   assert.equal(value.backend.kind, "rootless-oci");
+  assert.match(value.backend.service_image_digest, /^sha256:/u);
   assert.equal(value.platform.host, "darwin");
 });
 
@@ -76,6 +78,18 @@ test("hermetic boundary rejects unknown metadata and unsupported capability drif
       },
     })),
     /immutable image digest/u,
+  );
+  assert.throws(
+    () => validateHermeticBoundary(boundary({
+      backend: {
+        kind: "rootless-oci",
+        runtime_identity: "podman-5.2.2",
+        image_digest: `sha256:${"a".repeat(64)}`,
+      },
+      platform: { host: "linux", supported_hosts: ["linux"] },
+      network: { mode: "isolated-service", ambient_egress: "denied" },
+    })),
+    /service image digest/u,
   );
   assert.throws(
     () => validateHermeticBoundary(boundary({

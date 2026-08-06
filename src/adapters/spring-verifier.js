@@ -10,6 +10,10 @@ import {
 import { HarnessContractError, usageError } from "../contracts/errors.js";
 import { assertSupportedSchemaVersion } from "../contracts/schema-version.js";
 import { sha256Hex } from "../core/hash.js";
+import {
+  inspectPodmanBackend,
+  preparePodmanSpringInvocation,
+} from "./podman-spring.js";
 
 export const SPRING_VERIFIER_ADAPTER_ID = "spring-verifier";
 
@@ -33,15 +37,38 @@ export async function runSpringVerifier(options = {}) {
     maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
     spawnImpl = spawn,
     signal,
+    hermeticBoundary,
+    hostPlatform,
+    inspectBackend,
+    backendExecFile,
+    nameFactory,
   } = validateOptions(options);
 
   const root = await validateFixtureRoot(fixtureRoot);
   const fixture = await readFixture(root);
   await validateWrapper(root);
 
+  const invocation = hermeticBoundary === undefined
+    ? Object.freeze({
+      command: fixture.verifier.command,
+      args: fixture.verifier.args,
+      env: verifierEnvironment(),
+      cleanup: null,
+    })
+    : await preparePodmanSpringInvocation({
+      boundary: hermeticBoundary,
+      hostPlatform,
+      inspectBackend,
+      root,
+      fixture,
+      execFileImpl: backendExecFile,
+      nameFactory,
+    });
+
   return runVerifierProcess({
     root,
     fixture,
+    invocation,
     timeoutMs,
     maxOutputBytes,
     spawnImpl,
@@ -83,6 +110,11 @@ function validateOptions(options) {
     maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     spawnImpl: options.spawnImpl ?? spawn,
     signal: options.signal,
+    hermeticBoundary: options.hermeticBoundary,
+    hostPlatform: options.hostPlatform ?? process.platform,
+    inspectBackend: options.inspectBackend ?? inspectPodmanBackend,
+    backendExecFile: options.backendExecFile,
+    nameFactory: options.nameFactory,
   };
 }
 
@@ -208,6 +240,7 @@ function assertInsideRoot(root, targetPath, label) {
 async function runVerifierProcess({
   root,
   fixture,
+  invocation,
   timeoutMs,
   maxOutputBytes,
   spawnImpl,
@@ -215,13 +248,14 @@ async function runVerifierProcess({
 }) {
   let child;
   try {
-    child = spawnImpl(fixture.verifier.command, fixture.verifier.args, {
+    child = spawnImpl(invocation.command, invocation.args, {
       cwd: root,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: verifierEnvironment(),
+      env: invocation.env,
     });
   } catch (error) {
+    await cleanupInvocation(invocation);
     throw infraError("Spring verifier process could not be started.", {
       cause_name: error.name,
       cause_code: error.code ?? null,
@@ -229,6 +263,7 @@ async function runVerifierProcess({
   }
 
   if (!child || typeof child.on !== "function") {
+    await cleanupInvocation(invocation);
     throw usageError("spawnImpl must return a ChildProcess-like object.", {
       field: "spawnImpl",
     });
@@ -281,32 +316,41 @@ async function runVerifierProcess({
     if (signal.aborted) abort();
   }
 
-  const outcome = await new Promise((resolveOutcome, rejectOutcome) => {
-    let settled = false;
-    settleOutcome = (value) => {
-      if (!settled) {
-        settled = true;
-        resolveOutcome(value);
-      }
-    };
-    child.once?.("error", (error) => {
-      if (!settled) {
-        settled = true;
-        rejectOutcome(infraError("Spring verifier process failed.", {
-          cause_name: error.name,
-          cause_code: error.code ?? null,
-        }));
-      }
+  let outcome;
+  let processError;
+  try {
+    outcome = await new Promise((resolveOutcome, rejectOutcome) => {
+      let settled = false;
+      settleOutcome = (value) => {
+        if (!settled) {
+          settled = true;
+          resolveOutcome(value);
+        }
+      };
+      child.once?.("error", (error) => {
+        if (!settled) {
+          settled = true;
+          rejectOutcome(infraError("Spring verifier process failed.", {
+            cause_name: error.name,
+            cause_code: error.code ?? null,
+          }));
+        }
+      });
+      child.once?.("close", (exitCode, signal) => {
+        settleOutcome({ exitCode, signal });
+      });
     });
-    child.once?.("close", (exitCode, signal) => {
-      settleOutcome({ exitCode, signal });
-    });
-  }).finally(() => {
+  } catch (error) {
+    processError = error;
+  } finally {
     removeAbortListener();
     clearTimeout(timeout);
     clearTimeout(forceKillTimer);
     clearTimeout(forceSettleTimer);
-  });
+  }
+
+  await cleanupInvocation(invocation);
+  if (processError !== undefined) throw processError;
 
   const result = buildResult({
     fixture,
@@ -326,6 +370,29 @@ async function runVerifierProcess({
   }
 
   return result;
+}
+
+async function cleanupInvocation(invocation) {
+  if (typeof invocation.cleanup !== "function") {
+    return;
+  }
+
+  try {
+    const cleanup = await invocation.cleanup();
+    if (cleanup?.residue === true) {
+      throw infraError("Spring OCI verifier cleanup left residue.", {
+        process_residue: true,
+      });
+    }
+  } catch (error) {
+    if (error instanceof HarnessContractError) {
+      throw error;
+    }
+    throw infraError("Spring OCI verifier cleanup failed.", {
+      cause_name: error.name,
+      cause_code: error.code ?? null,
+    });
+  }
 }
 
 function verifierEnvironment() {

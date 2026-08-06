@@ -40,11 +40,15 @@ export function createManifestVerifier(manifest, options = {}) {
       }),
     });
   }
-  if (hermeticBoundary !== undefined) {
-    throw usageError("Hermetic Spring verification is not available in this increment.");
-  }
   return async (request) => springRunner({
     fixtureRoot: workspaceFromRequest(request),
     signal: request.signal,
+    ...(hermeticBoundary === undefined ? {} : {
+      hermeticBoundary,
+      inspectBackend: options.inspectSpringBackend,
+      hostPlatform: options.hostPlatform,
+      backendExecFile: options.backendExecFile,
+      nameFactory: options.nameFactory,
+    }),
   });
 }
