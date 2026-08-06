@@ -15,6 +15,8 @@ export function cliHelpText() {
     `  ${product.command} status <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} receipt <run-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} review <run-id> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} export-bundle <run-id> --output <file> [--project <path>] [--state-dir <path>]`,
+    `  ${product.command} verify-bundle --bundle <file>`,
     `  ${product.command} apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} apply-session <session-id> --approve <winner-receipt-sha256> [--project <path>] [--state-dir <path>]`,
     "",

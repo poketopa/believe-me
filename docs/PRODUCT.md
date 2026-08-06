@@ -46,16 +46,24 @@ baseline remains unchanged until the separate approval/apply operation. The
 process-level CLI proof then rejects an incorrect receipt approval, accepts the
 bound receipt hash, reruns verification, and reaches `applied`.
 
-The JSONL CLI exposes `init`, `run`, `status`, `receipt`, `review`, and
-`apply`, with one canonical record per command outcome and documented exit
-codes. Both executor kinds reuse the same state, receipt, explicit approval,
-atomic apply, and resume contracts.
+The JSONL CLI exposes `init`, `run`, `status`, `receipt`, `review`,
+`export-bundle`, `verify-bundle`, and `apply`, with one canonical record per
+command outcome and documented exit codes. Both executor kinds reuse the same
+state, receipt, explicit approval, atomic apply, and resume contracts.
 
 `review` is the read-only approval companion to `receipt`: it checks the stored
 receipt binding again and surfaces only the validated evidence summary, not raw
 candidate bytes or verifier streams. `stored_evidence_verified` deliberately
 means stored content integrity and state binding, not authenticated identity,
 current-source freshness, or a fresh verifier execution.
+
+`export-bundle` normalizes one validated stored run into a deterministic,
+unsigned canonical JSONL transport file with a 64 MiB cap and fail-closed
+no-overwrite publication. `verify-bundle` validates that file independently of
+project and state directories and returns the bounded
+`portable_evidence_verified` summary. The file includes candidate source bytes;
+it is content-integrity evidence, not identity, provenance, freshness, import,
+approval, or apply authority.
 
 ## Verifier selection
 

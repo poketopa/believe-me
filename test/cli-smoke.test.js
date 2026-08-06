@@ -21,7 +21,16 @@ test("CLI documents the current command surface", () => {
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /^BelieveMe \(@poketopa\/believe-me\)/);
-  for (const command of ["init", "run", "status", "receipt", "review", "apply"]) {
+  for (const command of [
+    "init",
+    "run",
+    "status",
+    "receipt",
+    "review",
+    "export-bundle",
+    "verify-bundle",
+    "apply",
+  ]) {
     assert.match(result.stdout, new RegExp(`\\b${command}\\b`));
   }
 });

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -89,6 +96,13 @@ test("npm tarball installs with a working executable", async () => {
   assert.equal(version.code, 0, version.stderr);
   assert.equal(version.stderr, "");
   assert.equal(version.stdout, "0.2.0\n");
+  const help = await run(executable, ["--help"], {
+    cwd: join(installRoot, "project"),
+    env: process.env,
+  });
+  assert.equal(help.code, 0, help.stderr);
+  assert.match(help.stdout, /believeme export-bundle/);
+  assert.match(help.stdout, /believeme verify-bundle/);
 
   const benchmarkApi = await run(
     process.execPath,
@@ -106,6 +120,17 @@ test("npm tarball installs with a working executable", async () => {
     benchmarkApi.stdout,
     "function function function function function function function function function function function function function function function\n",
   );
+  const internalBoundary = await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "import * as api from '@poketopa/believe-me'; console.log(Object.hasOwn(api, 'buildPortableEvidenceBundle'), Object.hasOwn(api, 'readPortableEvidenceBundle'));",
+    ],
+    { cwd: installRoot, env: process.env },
+  );
+  assert.equal(internalBoundary.code, 0, internalBoundary.stderr);
+  assert.equal(internalBoundary.stdout, "false false\n");
 
   const fixtureRoot = resolve("test/fixtures/node-reservation-policy");
   const projectRoot = join(installRoot, "node-reservation-policy");
@@ -161,6 +186,25 @@ test("npm tarball installs with a working executable", async () => {
   ], { cwd: installRoot, env: process.env }), "run");
   assert.equal(completed.lifecycle_state, "receipted");
   assert.equal(await readFile(join(projectRoot, targetPath), "utf8"), baselineSource);
+
+  const portableRoot = await realpath(controlRoot);
+  const bundlePath = join(portableRoot, "installed-run.jsonl");
+  const exported = parseSuccessfulJsonl(await run(executable, [
+    "export-bundle",
+    completed.run_id,
+    "--output",
+    bundlePath,
+    "--project",
+    projectRoot,
+  ], { cwd: installRoot, env: process.env }), "export-bundle");
+  assert.equal(exported.receipt_sha256, completed.receipt_sha256);
+  const portable = parseSuccessfulJsonl(await run(executable, [
+    "verify-bundle",
+    "--bundle",
+    "installed-run.jsonl",
+  ], { cwd: portableRoot, env: process.env }), "verify-bundle");
+  assert.equal(portable.verification_status, "portable_evidence_verified");
+  assert.equal(portable.run_id, completed.run_id);
 
   await writeFile(manifestPath, `${JSON.stringify({
     schema_version: { major: 1 },

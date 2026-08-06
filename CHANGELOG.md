@@ -12,6 +12,10 @@ Release.
   verifier or exposing candidate bytes. The explicit
   `stored_evidence_verified` status does not claim signed provenance or current
   source freshness.
+- Deterministic `export-bundle` and state-independent `verify-bundle` CLI
+  commands for one bounded canonical JSONL evidence file. The explicit
+  `portable_evidence_verified` status proves internal content/hash bindings only;
+  the unsigned file contains candidate bytes and is not import or apply input.
 
 ## [0.2.0] - 2026-08-06
 

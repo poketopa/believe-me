@@ -4,7 +4,9 @@ import {
   cp,
   mkdir,
   mkdtemp,
+  lstat,
   readFile,
+  realpath,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,10 +16,10 @@ import { sha256Hex } from "../../src/core/hash.js";
 
 const cliPath = resolve("bin/believeme.js");
 
-async function runCli(args) {
+async function runCli(args, options = {}) {
   return new Promise((resolveResult, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: process.cwd(),
+      cwd: options.cwd ?? process.cwd(),
       env: process.env,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
@@ -175,6 +177,50 @@ test("CLI process runs, receipts, and explicitly applies the Spring proof", asyn
     result: join(artifactRoot, "result.jsonl"),
   });
   assert.deepEqual(afterReviewArtifacts, beforeReviewArtifacts);
+
+  const portableRoot = await realpath(controlRoot);
+  const firstBundle = join(portableRoot, "run-first.jsonl");
+  const secondBundle = join(portableRoot, "run-second.jsonl");
+  const firstExport = assertSuccess(await runCli([
+    "export-bundle",
+    run.data.run_id,
+    "--project",
+    projectRoot,
+    "--output",
+    firstBundle,
+  ]), "export-bundle");
+  const secondExport = assertSuccess(await runCli([
+    "export-bundle",
+    run.data.run_id,
+    "--project",
+    projectRoot,
+    "--output",
+    secondBundle,
+  ]), "export-bundle");
+  assert.equal(firstExport.data.bundle_sha256, secondExport.data.bundle_sha256);
+  assert.deepEqual(await readFile(firstBundle), await readFile(secondBundle));
+  assert.equal((await lstat(firstBundle)).mode & 0o777, 0o600);
+
+  const verified = assertSuccess(await runCli([
+    "verify-bundle",
+    "--bundle",
+    "run-first.jsonl",
+  ], { cwd: portableRoot }), "verify-bundle");
+  assert.equal(verified.data.verification_status, "portable_evidence_verified");
+  assert.equal(verified.data.run_id, run.data.run_id);
+  assert.equal(verified.data.receipt_sha256, run.data.receipt_sha256);
+  assert.deepEqual(verified.data.changes, review.data.changes);
+  assert.deepEqual(
+    await readTextArtifacts({
+      state: join(initialized.data.state_dir, "runs", run.data.run_id, "state.jsonl"),
+      stateDigest: join(initialized.data.state_dir, "runs", run.data.run_id, "state.sha256"),
+      receipt: join(artifactRoot, "receipt.jsonl"),
+      receiptDigest: join(artifactRoot, "receipt.sha256"),
+      verification: join(artifactRoot, "verification.jsonl"),
+      result: join(artifactRoot, "result.jsonl"),
+    }),
+    beforeReviewArtifacts,
+  );
 
   const refused = await runCli([
     "apply",
