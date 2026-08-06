@@ -16,6 +16,9 @@ Release.
   commands for one bounded canonical JSONL evidence file. The explicit
   `portable_evidence_verified` status proves internal content/hash bindings only;
   the unsigned file contains candidate bytes and is not import or apply input.
+- Read-only `status-session` and `review-session` CLI commands for validated
+  adaptive-session state, ordered attempt bindings, and winning-child receipt
+  review without execution, resume, apply, or filesystem repair.
 
 ## [0.2.0] - 2026-08-06
 

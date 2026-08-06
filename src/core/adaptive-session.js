@@ -11,6 +11,7 @@ import { validateContextPack } from "../contracts/context-pack.js";
 import { validateExecutionPolicy, validateRouteSelection } from "../contracts/execution-policy.js";
 import {
   infraError,
+  notFound,
   safetyRefusal,
   usageError,
   verificationFailed,
@@ -184,6 +185,49 @@ async function ensureSessionRoots(stateDir) {
   return sessionsRoot;
 }
 
+async function assertRealDirectory(path, label, missingError) {
+  let stats;
+  try {
+    stats = await lstat(path);
+  } catch (error) {
+    if (error.code === "ENOENT" && missingError !== undefined) {
+      throw missingError();
+    }
+    throw error;
+  }
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw safetyRefusal(`${label} must be a real directory.`);
+  }
+  return path;
+}
+
+async function assertExistingSessionPaths(stateDir, sessionId) {
+  const paths = adaptiveSessionPaths(stateDir, sessionId);
+  const stateRoot = resolve(stateDir);
+  await assertRealDirectory(
+    stateRoot,
+    "Adaptive session state directory",
+    () => notFound("Adaptive session state directory does not exist.", {
+      state_dir: stateRoot,
+    }),
+  );
+  await assertRealDirectory(
+    join(stateRoot, "sessions"),
+    "Adaptive sessions path",
+    () => notFound("Adaptive sessions directory does not exist.", {
+      state_dir: stateRoot,
+    }),
+  );
+  await assertRealDirectory(
+    paths.root,
+    "Adaptive session artifact root",
+    () => notFound("Adaptive session does not exist.", {
+      session_id: validateSessionId(sessionId),
+    }),
+  );
+  return paths;
+}
+
 async function writePair(paths, value) {
   const line = canonicalJSONLine(value);
   const sha256 = sha256Hex(Buffer.from(line, "utf8"));
@@ -235,6 +279,13 @@ async function pairExists(paths) {
     throw safetyRefusal("Adaptive session artifact pair is incomplete.");
   }
   return existence[0];
+}
+
+async function readRequiredPair(paths, label, missingError) {
+  if (!await pairExists(paths)) {
+    throw missingError();
+  }
+  return readPair(paths, label);
 }
 
 function validateStringSet(values, field) {
@@ -480,15 +531,7 @@ function buildSession(input, attempts, terminalReason) {
 function nextTransition(normalized, attempts, input) {
   const { attempt, outcome } = normalized;
   if (attempt.winner) return { terminalReason: "winner" };
-  let routeReason = null;
-  if (attempt.status === "verification_failed") {
-    routeReason = "verifier_failure";
-  } else if (
-    ["infra_error", "timeout"].includes(attempt.status) &&
-    input.transient_infra_retry_codes.includes(attempt.failure_code)
-  ) {
-    routeReason = "transient_infra_retry";
-  }
+  const routeReason = retryRouteReason(attempt, input);
   if (routeReason === null) return { terminalReason: "terminal_failure" };
   if (attempts.length >= input.policy.attempt_budget) {
     return { terminalReason: "attempt_budget_exhausted" };
@@ -564,16 +607,102 @@ function validateInput(value) {
   return validated;
 }
 
-async function readAttemptRecords(paths, input) {
+function indexedPairStatus(names, prefix) {
+  const pattern = new RegExp(`^${prefix}-(\\d{4})\\.(jsonl|sha256)$`, "u");
+  const pairs = new Map();
+  for (const name of names) {
+    const match = pattern.exec(name);
+    if (match === null) continue;
+    const index = Number.parseInt(match[1], 10);
+    const entry = pairs.get(index) ?? { body: false, digest: false };
+    if (match[2] === "jsonl") {
+      entry.body = true;
+    } else {
+      entry.digest = true;
+    }
+    pairs.set(index, entry);
+  }
+  for (const pair of pairs.values()) {
+    if (pair.body !== pair.digest) {
+      throw safetyRefusal("Adaptive session artifact pair is incomplete.");
+    }
+  }
+  return Object.freeze([...pairs.keys()].sort((left, right) => left - right));
+}
+
+function retryRouteReason(attempt, input) {
+  if (attempt.status === "verification_failed") {
+    return "verifier_failure";
+  }
+  if (
+    ["infra_error", "timeout"].includes(attempt.status) &&
+    input.transient_infra_retry_codes.includes(attempt.failure_code)
+  ) {
+    return "transient_infra_retry";
+  }
+  return null;
+}
+
+function validateAttemptClaim(
+  value,
+  input,
+  index,
+  expectedRetryDigest,
+  expectedRouteReason,
+) {
+  if (
+    value?.schema_version?.major !== 1 ||
+    value.session_id !== input.session_id ||
+    value.attempt_index !== index ||
+    typeof value.attempt_id !== "string" ||
+    value.attempt_id.length === 0 ||
+    typeof value.child_run_id !== "string" ||
+    value.child_run_id.length === 0 ||
+    value.policy_sha256 !== input.policy_sha256 ||
+    value.context_pack_sha256 !== input.context_pack_sha256 ||
+    value.retry_context_sha256 !== expectedRetryDigest ||
+    value.route_reason !== expectedRouteReason ||
+    !input.policy.routes.some((route) => route.reason === value.route_reason)
+  ) {
+    throw safetyRefusal("Adaptive attempt claim does not match frozen session state.");
+  }
+}
+
+async function readAttemptRecords(paths, input, options = {}) {
   const records = [];
-  const names = await readdir(paths.attempts).catch((error) => {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  });
-  const bodies = names.filter((name) => /^attempt-\d{4}\.jsonl$/u.test(name)).sort();
-  for (const [index, name] of bodies.entries()) {
-    const expected = `attempt-${String(index).padStart(4, "0")}.jsonl`;
-    if (name !== expected) throw safetyRefusal("Adaptive attempts must be contiguous.");
+  await assertRealDirectory(
+    paths.attempts,
+    "Adaptive attempts path",
+    () => safetyRefusal("Adaptive attempts path must be a real directory."),
+  );
+  const names = await readdir(paths.attempts);
+  const knownArtifact = /^(?:attempt|claim)-\d{4}\.(?:jsonl|sha256)$/u;
+  if (names.some((name) => !knownArtifact.test(name))) {
+    throw safetyRefusal("Adaptive attempts path contains unsupported artifacts.");
+  }
+  const attemptIndices = indexedPairStatus(names, "attempt");
+  const claimIndices = indexedPairStatus(names, "claim");
+  for (const [index, actual] of attemptIndices.entries()) {
+    if (actual !== index) throw safetyRefusal("Adaptive attempts must be contiguous.");
+  }
+  for (const [index, actual] of claimIndices.entries()) {
+    if (actual !== index || actual > attemptIndices.length) {
+      throw safetyRefusal("Adaptive attempt claims must be contiguous.");
+    }
+  }
+  if (
+    claimIndices.length < attemptIndices.length ||
+    claimIndices.length > attemptIndices.length + 1
+  ) {
+    throw safetyRefusal("Every adaptive attempt requires an execution claim.");
+  }
+  if (
+    options.allowDanglingClaim === false &&
+    claimIndices.length > attemptIndices.length
+  ) {
+    throw safetyRefusal("A completed adaptive session cannot retain a dangling claim.");
+  }
+  for (const index of attemptIndices) {
     const pair = await readPair(attemptPaths(paths, index), `Adaptive attempt ${index}`);
     const attempt = validateAdaptiveAttempt(pair.value.attempt, {
       contextPackSha256: input.context_pack_sha256,
@@ -583,16 +712,24 @@ async function readAttemptRecords(paths, input) {
       claimPaths(paths, index),
       `Adaptive attempt claim ${index}`,
     );
+    const expectedRetryDigest = index === 0
+      ? null
+      : sha256CanonicalJSON(records[index - 1].retry_context);
+    validateAttemptClaim(
+      storedClaim.value,
+      input,
+      index,
+      expectedRetryDigest,
+      index === 0
+        ? "initial"
+        : retryRouteReason(records[index - 1].attempt, input),
+    );
     if (
       attempt.attempt_claim_sha256 !== storedClaim.sha256 ||
-      storedClaim.value.session_id !== input.session_id ||
-      storedClaim.value.attempt_index !== index ||
       storedClaim.value.attempt_id !== attempt.attempt_id ||
       storedClaim.value.child_run_id !== attempt.child_run_id ||
       storedClaim.value.route_reason !== attempt.route_reason ||
-      storedClaim.value.retry_context_sha256 !== attempt.retry_context_sha256 ||
-      storedClaim.value.policy_sha256 !== input.policy_sha256 ||
-      storedClaim.value.context_pack_sha256 !== input.context_pack_sha256
+      storedClaim.value.retry_context_sha256 !== attempt.retry_context_sha256
     ) {
       throw safetyRefusal("Adaptive attempt is not bound to its execution claim.");
     }
@@ -623,9 +760,6 @@ async function readAttemptRecords(paths, input) {
     )) {
       throw safetyRefusal("Retry context is not bound to its prior child attempt.");
     }
-    const expectedRetryDigest = index === 0
-      ? null
-      : sha256CanonicalJSON(records[index - 1].retry_context);
     if (attempt.retry_context_sha256 !== expectedRetryDigest) {
       throw safetyRefusal("Adaptive attempt retry context digest is inconsistent.");
     }
@@ -647,6 +781,23 @@ async function readAttemptRecords(paths, input) {
       terminal_reason: terminalReason,
     }));
   }
+  if (claimIndices.includes(attemptIndices.length)) {
+    const expectedRetryDigest = records.length === 0
+      ? null
+      : sha256CanonicalJSON(records.at(-1).retry_context);
+    validateAttemptClaim(
+      (await readPair(
+        claimPaths(paths, attemptIndices.length),
+        `Adaptive attempt claim ${attemptIndices.length}`,
+      )).value,
+      input,
+      attemptIndices.length,
+      expectedRetryDigest,
+      records.length === 0
+        ? "initial"
+        : retryRouteReason(records.at(-1).attempt, input),
+    );
+  }
   return records;
 }
 
@@ -663,7 +814,9 @@ async function finalize(paths, input, attempts, terminalReason) {
 async function readCompletedSession(paths, input) {
   const pair = await readPair(paths.final, "Adaptive session");
   const session = validateAdaptiveSession(pair.value, { persisted: true });
-  const records = await readAttemptRecords(paths, input);
+  const records = await readAttemptRecords(paths, input, {
+    allowDanglingClaim: false,
+  });
   const terminalRecord = records.at(-1);
   if (
     session.session_id !== input.session_id ||
@@ -678,7 +831,47 @@ async function readCompletedSession(paths, input) {
   return Object.freeze({
     session,
     session_receipt_sha256: pair.sha256,
+    input,
     paths,
+  });
+}
+
+function validateParentFailure(value, input) {
+  if (
+    value?.schema_version?.major !== 1 ||
+    value.session_id !== input.session_id ||
+    !Number.isSafeInteger(value.attempt_index) ||
+    value.attempt_index < 0 ||
+    typeof value.attempt_id !== "string" ||
+    value.attempt_id.length === 0 ||
+    typeof value.child_run_id !== "string" ||
+    value.child_run_id.length === 0 ||
+    !/^[a-f0-9]{64}$/u.test(value.attempt_claim_sha256 ?? "") ||
+    typeof value.code !== "string" ||
+    value.code.length === 0
+  ) {
+    throw safetyRefusal("Adaptive session failure is not bound to frozen session state.");
+  }
+  return Object.freeze(structuredClone(value));
+}
+
+function adaptiveSessionStatusSummary({
+  input,
+  records,
+  status,
+  session = null,
+  receiptSha256 = null,
+}) {
+  const winner = session?.attempts.find((attempt) => attempt.winner) ?? null;
+  return Object.freeze({
+    session_id: input.session_id,
+    session_status: status,
+    attempt_count: records.length,
+    terminal_reason: session?.terminal_reason ?? null,
+    winner_run_id: winner?.child_run_id ?? null,
+    session_receipt_sha256: receiptSha256,
+    policy_sha256: input.policy_sha256,
+    context_pack_sha256: input.context_pack_sha256,
   });
 }
 
@@ -892,13 +1085,103 @@ export async function resumeAdaptiveSession(options = {}) {
 }
 
 export async function readAdaptiveSession(stateDir, sessionId) {
-  await ensureSessionRoots(stateDir);
-  const paths = adaptiveSessionPaths(stateDir, sessionId);
-  const input = validateInput((await readPair(
+  const paths = await assertExistingSessionPaths(stateDir, sessionId);
+  const input = validateInput((await readRequiredPair(
     paths.input,
     "Adaptive session input",
+    () => notFound("Adaptive session input does not exist.", {
+      session_id: validateSessionId(sessionId),
+    }),
   )).value);
+  const [hasFinal, hasFailure] = await Promise.all([
+    pairExists(paths.final),
+    pairExists(paths.failure),
+  ]);
+  if (hasFinal && hasFailure) {
+    throw safetyRefusal("Adaptive session has conflicting terminal artifacts.");
+  }
+  if (!hasFinal) {
+    throw notFound("Adaptive session is not completed.", {
+      session_id: validateSessionId(sessionId),
+    });
+  }
   return readCompletedSession(paths, input);
+}
+
+export async function readAdaptiveSessionStatus(stateDir, sessionId) {
+  const paths = await assertExistingSessionPaths(stateDir, sessionId);
+  const input = validateInput((await readRequiredPair(
+    paths.input,
+    "Adaptive session input",
+    () => notFound("Adaptive session input does not exist.", {
+      session_id: validateSessionId(sessionId),
+    }),
+  )).value);
+  const [hasFinal, hasFailure] = await Promise.all([
+    pairExists(paths.final),
+    pairExists(paths.failure),
+  ]);
+  if (hasFinal && hasFailure) {
+    throw safetyRefusal("Adaptive session has conflicting terminal artifacts.");
+  }
+  if (hasFinal) {
+    const completed = await readCompletedSession(paths, input);
+    return adaptiveSessionStatusSummary({
+      input,
+      records: completed.session.attempts,
+      status: "completed",
+      session: completed.session,
+      receiptSha256: completed.session_receipt_sha256,
+    });
+  }
+  const records = await readAttemptRecords(paths, input);
+  if (hasFailure) {
+    const parentFailure = validateParentFailure(
+      (await readPair(paths.failure, "Adaptive session failure")).value,
+      input,
+    );
+    const claim = await readRequiredPair(
+      claimPaths(paths, parentFailure.attempt_index),
+      `Adaptive attempt claim ${parentFailure.attempt_index}`,
+      () => safetyRefusal(
+        "Adaptive session failure is missing its execution claim.",
+      ),
+    );
+    validateAttemptClaim(
+      claim.value,
+      input,
+      parentFailure.attempt_index,
+      parentFailure.attempt_index === 0
+        ? null
+        : sha256CanonicalJSON(records.at(-1)?.retry_context ?? null),
+      parentFailure.attempt_index === 0
+        ? "initial"
+        : retryRouteReason(records.at(-1).attempt, input),
+    );
+    if (
+      parentFailure.attempt_index !== records.length ||
+      parentFailure.attempt_claim_sha256 !== claim.sha256 ||
+      parentFailure.attempt_id !== claim.value.attempt_id ||
+      parentFailure.child_run_id !== claim.value.child_run_id
+    ) {
+      throw safetyRefusal(
+        "Adaptive session failure is not bound to its execution claim.",
+      );
+    }
+    return adaptiveSessionStatusSummary({
+      input,
+      records,
+      status: "parent_failed",
+    });
+  }
+  if (records.at(-1)?.terminal_reason !== null && records.length > 0) {
+    throw safetyRefusal("Adaptive session terminal attempt is missing its final session.");
+  }
+  return adaptiveSessionStatusSummary({
+    input,
+    records,
+    status: "in_progress",
+  });
 }
 
 export function resolveAdaptiveSessionWinner(session) {

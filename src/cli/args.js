@@ -26,6 +26,16 @@ const commands = Object.freeze({
     requiredFlags: Object.freeze([]),
     positionals: 1,
   }),
+  "status-session": Object.freeze({
+    flags: Object.freeze(["project", "state-dir"]),
+    requiredFlags: Object.freeze([]),
+    positionals: 1,
+  }),
+  "review-session": Object.freeze({
+    flags: Object.freeze(["project", "state-dir"]),
+    requiredFlags: Object.freeze([]),
+    positionals: 1,
+  }),
   "export-bundle": Object.freeze({
     flags: Object.freeze(["output", "project", "state-dir"]),
     requiredFlags: Object.freeze(["output"]),

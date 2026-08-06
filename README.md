@@ -48,8 +48,8 @@ skill / policy
 - deterministic verifier mutation calibration over independent Node and Spring tasks.
 
 The CLI surface is `init`, `run`, `status`, `receipt`, `review`,
-`export-bundle`, `verify-bundle`, `apply`, and the additive `apply-session`
-command for a verified adaptive-session winner.
+`status-session`, `review-session`, `export-bundle`, `verify-bundle`, `apply`,
+and the additive `apply-session` command for a verified adaptive-session winner.
 
 ## Current proof
 
@@ -127,6 +127,8 @@ believeme run \
 believeme status <run-id> --project ./my-project
 believeme receipt <run-id> --project ./my-project
 believeme review <run-id> --project ./my-project
+believeme status-session <session-id> --project ./my-project
+believeme review-session <session-id> --project ./my-project
 believeme export-bundle <run-id> \
   --output ./run-evidence.jsonl \
   --project ./my-project
@@ -214,6 +216,17 @@ or exposing candidate bytes. Its `stored_evidence_verified` status describes
 stored canonical bytes, receipt hash links, minimal result/verifier semantics,
 and run-state binding only; it is not a signature, a fresh verifier run, or a
 current-source freshness claim.
+
+`believeme status-session` reads validated adaptive-session artifacts without
+creating state directories, taking a session lock, resuming a child, or running
+a verifier. It distinguishes in-progress, completed, and terminal parent-failure
+state while returning only bounded hashes and identifiers. `believeme
+review-session` requires a completed session, validates the frozen input,
+ordered attempt checkpoints, and final session receipt, and validates the
+winning child receipt when one exists. `adaptive_session_verified` describes
+stored content binding only: non-winning attempt hashes remain session-bound
+pointers, and neither command proves identity, freshness, attestation, or a new
+verifier execution.
 
 `believeme export-bundle` writes the same validated stored evidence as one
 deterministic canonical JSONL file. The output contains candidate source bytes

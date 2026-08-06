@@ -91,6 +91,8 @@ test("help and version remain plain text", async () => {
   assert.match(help.read(), /^BelieveMe \(@poketopa\/believe-me\)/);
   assert.match(help.read(), /believeme run/);
   assert.match(help.read(), /believeme review/);
+  assert.match(help.read(), /believeme status-session/);
+  assert.match(help.read(), /believeme review-session/);
   assert.match(help.read(), /believeme export-bundle/);
   assert.match(help.read(), /believeme verify-bundle/);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(help.read())));

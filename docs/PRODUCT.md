@@ -47,9 +47,10 @@ process-level CLI proof then rejects an incorrect receipt approval, accepts the
 bound receipt hash, reruns verification, and reaches `applied`.
 
 The JSONL CLI exposes `init`, `run`, `status`, `receipt`, `review`,
-`export-bundle`, `verify-bundle`, and `apply`, with one canonical record per
-command outcome and documented exit codes. Both executor kinds reuse the same
-state, receipt, explicit approval, atomic apply, and resume contracts.
+`status-session`, `review-session`, `export-bundle`, `verify-bundle`, and
+`apply`, with one canonical record per command outcome and documented exit
+codes. Both executor kinds reuse the same state, receipt, explicit approval,
+atomic apply, and resume contracts.
 
 `review` is the read-only approval companion to `receipt`: it checks the stored
 receipt binding again and surfaces only the validated evidence summary, not raw
@@ -64,6 +65,15 @@ project and state directories and returns the bounded
 `portable_evidence_verified` summary. The file includes candidate source bytes;
 it is content-integrity evidence, not identity, provenance, freshness, import,
 approval, or apply authority.
+
+`status-session` and `review-session` expose the already-existing opt-in
+adaptive-session evidence without adding execution authority. Both are
+structurally read-only: missing paths remain missing, and neither command takes
+a lock, resumes a child, applies a winner, or invokes a verifier. Status covers
+in-progress, completed, and terminal parent-failure artifacts. Review requires
+a completed session, validates its input/attempt/final bindings, and validates
+the winning child receipt when present. The result is stored evidence review,
+not provider identity, freshness, attestation, or independent re-execution.
 
 ## Verifier selection
 
