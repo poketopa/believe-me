@@ -41,7 +41,26 @@ time, or freshness. Treating the bundle as authority would collapse those
 separate claims.
 
 **Consequence:** bundles are independently checkable and relocatable, while
-identity attestation remains a future optional layer.
+identity attestation remains a separate optional layer.
+
+## Offline signer evidence uses a detached Ed25519 sidecar
+
+**Decision:** `attest-bundle` signs domain-separated exact portable-bundle bytes
+with a caller-managed Ed25519 key and publishes a separate canonical JSONL
+sidecar. `verify-attestation` requires the exact bundle, sidecar, and a
+caller-trusted SPKI public key.
+
+**Reason:** a detached file preserves the v1 unsigned bundle schema, bytes, hash,
+and compatibility. Node's built-in Ed25519 support keeps private signing and
+verification offline and dependency-free. Keyless transparency requires OIDC,
+network services, trust-root lifecycle, and disclosure of identity or workflow
+claims, so it remains a separate future opt-in decision.
+
+**Consequence:** successful verification proves that the key with the reported
+DER-SPKI SHA-256 fingerprint signed the exact bundle bytes. It does not identify
+a person, establish freshness or revocation status, prove trusted execution, or
+grant import, approval, or apply authority. Key custody, distribution, rotation,
+revocation, and fingerprint correlation remain explicit operator concerns.
 
 ## Hermetic verification is opt-in
 

@@ -930,6 +930,70 @@ test("verify-bundle dispatches without project or state resolution", async () =>
   });
 });
 
+test("attest-bundle dispatches without project or state authority", async () => {
+  let observed;
+  const summary = await executeCliCommand({
+    command: "attest-bundle",
+    bundle: "review.jsonl",
+    privateKey: "signer-private.pem",
+    output: "review.attestation.jsonl",
+  }, {
+    cwd: "/unrelated",
+    async createBundleAttestation(input) {
+      observed = input;
+      return { creation_status: "bundle_attestation_created" };
+    },
+    readRunState: async () => {
+      throw new Error("attest-bundle must not read state");
+    },
+    applyEvidenceBundle: async () => {
+      throw new Error("attest-bundle must not apply");
+    },
+  });
+
+  assert.deepEqual(observed, {
+    bundlePath: "review.jsonl",
+    privateKeyPath: "signer-private.pem",
+    outputPath: "review.attestation.jsonl",
+    cwd: "/unrelated",
+  });
+  assert.deepEqual(summary, {
+    creation_status: "bundle_attestation_created",
+  });
+});
+
+test("verify-attestation dispatches without project or apply authority", async () => {
+  let observed;
+  const summary = await executeCliCommand({
+    command: "verify-attestation",
+    bundle: "review.jsonl",
+    attestation: "review.attestation.jsonl",
+    publicKey: "signer-public.pem",
+  }, {
+    cwd: "/unrelated",
+    async verifyBundleAttestation(input) {
+      observed = input;
+      return { verification_status: "bundle_attestation_verified" };
+    },
+    readRunState: async () => {
+      throw new Error("verify-attestation must not read state");
+    },
+    applyEvidenceBundle: async () => {
+      throw new Error("verify-attestation must not apply");
+    },
+  });
+
+  assert.deepEqual(observed, {
+    bundlePath: "review.jsonl",
+    attestationPath: "review.attestation.jsonl",
+    publicKeyPath: "signer-public.pem",
+    cwd: "/unrelated",
+  });
+  assert.deepEqual(summary, {
+    verification_status: "bundle_attestation_verified",
+  });
+});
+
 test("missing status maps filesystem absence to not_found", async () => {
   const missing = new Error("missing");
   missing.code = "ENOENT";

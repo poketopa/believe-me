@@ -48,9 +48,10 @@ bound receipt hash, reruns verification, and reaches `applied`.
 
 The JSONL CLI exposes `demo`, `init`, `run`, `status`, `receipt`, `review`,
 `run-session`, `resume-session`, `status-session`, `review-session`,
-`export-bundle`, `verify-bundle`, and `apply`, with one canonical record per
-command outcome and documented exit codes. Both executor kinds reuse the same
-state, receipt, explicit approval, atomic apply, and resume contracts.
+`export-bundle`, `verify-bundle`, `attest-bundle`, `verify-attestation`, and
+`apply`, with one canonical record per command outcome and documented exit codes.
+Both executor kinds reuse the same state, receipt, explicit approval, atomic
+apply, and resume contracts.
 
 `demo` composes the existing deterministic, command-verifier, stored-review,
 portable-evidence, and apply boundaries against a generated dependency-free Node
@@ -72,6 +73,13 @@ project and state directories and returns the bounded
 `portable_evidence_verified` summary. The file includes candidate source bytes;
 it is content-integrity evidence, not identity, provenance, freshness, import,
 approval, or apply authority.
+
+`attest-bundle` optionally publishes a detached, canonical Ed25519 signature
+sidecar over the exact validated bundle bytes. `verify-attestation` operates
+offline with a caller-supplied trusted public key and reports its SPKI
+fingerprint. The result is signer-key possession evidence only: key ownership,
+rotation, revocation, identity mapping, and fingerprint privacy remain external
+policy, and the sidecar is never an import, approval, or apply input.
 
 `status-session` and `review-session` expose the already-existing opt-in
 adaptive-session evidence without adding execution authority. Both are

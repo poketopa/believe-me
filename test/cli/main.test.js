@@ -98,6 +98,8 @@ test("help and version remain plain text", async () => {
   assert.match(help.read(), /believeme review-session/);
   assert.match(help.read(), /believeme export-bundle/);
   assert.match(help.read(), /believeme verify-bundle/);
+  assert.match(help.read(), /believeme attest-bundle/);
+  assert.match(help.read(), /believeme verify-attestation/);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(help.read())));
 
   const version = sink();

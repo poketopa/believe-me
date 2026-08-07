@@ -8,6 +8,7 @@
 - apply journal, owner lock, rollback data, and lifecycle state;
 - executor credentials admitted to a bounded adapter;
 - portable evidence bytes written by an explicit export operation.
+- optional detached attestation bytes and caller-managed Ed25519 key material.
 
 ## Adversaries and failures
 
@@ -22,6 +23,8 @@
 | Path escape | Symlink or traversal reaches outside admitted roots | Normalized relative paths, no-follow checks, real-path boundaries |
 | Verifier residue | Timed-out process or descendant survives | Process-group termination and fail-closed cleanup |
 | Portable bundle misuse | Content integrity is treated as identity or authority | Read-only verification result and explicit non-goal language |
+| Signing-key compromise | A valid signature is mistaken for current signer authorization | Caller-supplied trust, explicit out-of-band rotation/revocation, and no freshness or authority claim |
+| Signer correlation | A stable key fingerprint links otherwise separate bundles | No embedded person identity; privacy consequence documented before signing |
 
 ## Trust boundaries
 
@@ -31,6 +34,8 @@
 - A receipt authorizes nothing by itself. Apply requires the exact receipt hash
   and a fresh source/verifier check.
 - Review and bundle verification never import, approve, or apply candidate bytes.
+- Attestation verification proves only possession of the caller-trusted key for
+  exact bundle bytes. It does not consult run state or grant lifecycle authority.
 - Hermetic authority is explicit, frozen, runtime-checked, and fail-closed.
 
 ## Demo-specific boundary
@@ -47,6 +52,8 @@ identity, trusted execution, external reproducibility, or comparative efficacy.
 - preventing every malicious action by user-authorized verifier code in direct
   mode;
 - authenticating who produced an unsigned receipt or portable bundle;
+- mapping an attestation key to a person or organization, checking revocation,
+  or proving signature time without an external trust policy;
 - proving freshness from stored evidence alone;
 - automatically granting approval or apply authority to adaptive winners;
 - supporting arbitrary package install scripts or downloading demo dependencies.

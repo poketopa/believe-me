@@ -77,6 +77,16 @@ const commands = Object.freeze({
     requiredFlags: Object.freeze(["bundle"]),
     positionals: 0,
   }),
+  "attest-bundle": Object.freeze({
+    flags: Object.freeze(["bundle", "private-key", "output"]),
+    requiredFlags: Object.freeze(["bundle", "private-key", "output"]),
+    positionals: 0,
+  }),
+  "verify-attestation": Object.freeze({
+    flags: Object.freeze(["bundle", "attestation", "public-key"]),
+    requiredFlags: Object.freeze(["bundle", "attestation", "public-key"]),
+    positionals: 0,
+  }),
   apply: Object.freeze({
     flags: Object.freeze(["approve", "project", "state-dir"]),
     requiredFlags: Object.freeze(["approve"]),
