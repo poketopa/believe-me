@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { isolateGradleUserHome } from "../helpers/isolated-gradle-user-home.js";
 import { HERMETIC_REFUSAL_REASON_CODES } from "../../src/contracts/hermetic-boundary.js";
 import {
   applyEvidenceBundle,
@@ -27,6 +28,8 @@ import {
   usageError,
   writeEvidenceBundle,
 } from "../../src/index.js";
+
+isolateGradleUserHome("run-orchestration");
 
 const issuedAt = "2026-08-05T00:00:00.000Z";
 const recordedAt = () => "2026-08-05T00:00:01.000Z";

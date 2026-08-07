@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { runSpringVerifier } from "../../../src/index.js";
+import { isolateGradleUserHome } from "../../helpers/isolated-gradle-user-home.js";
+
+isolateGradleUserHome("spring-fixture");
 
 const fixtureRoot = fileURLToPath(new URL(
   "../../fixtures/roomescape-cancel-booking-penalty/",
