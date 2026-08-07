@@ -34,19 +34,18 @@ Abbreviated example (hashes and `changed_paths` omitted):
 
 The demo proves that the packaged lifecycle works. It is not a benchmark, an
 efficacy claim, provider provenance, or evidence of trusted execution. The
-currently published stable is v0.2.0; `demo` is recorded under `Unreleased` and
-requires the next minor package release. From this checkout, run
-`node bin/believeme.js demo`.
+command is included in v0.3.0 and later packages.
 
 Design references: [architecture](https://github.com/poketopa/believe-me/blob/main/docs/ARCHITECTURE.md),
 [threat model](https://github.com/poketopa/believe-me/blob/main/docs/THREAT-MODEL.md), and
 [design decisions](https://github.com/poketopa/believe-me/blob/main/docs/DESIGN-DECISIONS.md).
 
 > [!NOTE]
-> BelieveMe v0.2.0 adds adaptive execution as an opt-in feature set without an
-> efficacy claim. The frozen decision cut found insufficient comparative evidence
-> for adaptive token, cost, or quality gains. The npm package is
-> `@poketopa/believe-me`, and the CLI command is `believeme`.
+> BelieveMe v0.3.0 adds reviewable stored evidence, portable unsigned evidence
+> bundles, opt-in hermetic execution, and a disposable lifecycle demo. These
+> features do not establish provider provenance, trusted execution, or an
+> efficacy claim. The npm package is `@poketopa/believe-me`, and the CLI command
+> is `believeme`.
 
 ## Install
 

@@ -5,6 +5,8 @@ Release.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-07
+
 ### Added
 
 - A public `believeme demo` command that exercises the receipt, stored review,
