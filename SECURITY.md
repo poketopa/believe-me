@@ -1,13 +1,13 @@
 # Security policy
 
-Security fixes are provided for the latest stable `0.3.x` release.
+Security fixes are provided for the latest stable `0.4.x` release.
 
 ## Supported versions
 
 | Version | Supported |
 | --- | --- |
-| `0.3.x` | Yes |
-| `< 0.3.0` | No |
+| `0.4.x` | Yes |
+| `< 0.4.0` | No |
 
 Do not open a public issue for a vulnerability involving secret exposure,
 workspace escape, command injection, evidence forgery, or unsafe apply. Submit

@@ -41,10 +41,10 @@ Design references: [architecture](https://github.com/poketopa/believe-me/blob/ma
 [design decisions](https://github.com/poketopa/believe-me/blob/main/docs/DESIGN-DECISIONS.md).
 
 > [!NOTE]
-> BelieveMe v0.3.0 adds reviewable stored evidence, portable unsigned evidence
-> bundles, opt-in hermetic execution, and a disposable lifecycle demo. These
-> features do not establish provider provenance, trusted execution, or an
-> efficacy claim. The npm package is `@poketopa/believe-me`, and the CLI command
+> BelieveMe v0.4.0 adds optional offline Ed25519 signer evidence while preserving
+> the unsigned bundle path introduced in v0.3.0. Signatures do not establish a
+> person identity, freshness, revocation status, trusted execution, approval, or
+> apply authority. The npm package is `@poketopa/believe-me`, and the CLI command
 > is `believeme`.
 
 ## Install
@@ -306,9 +306,7 @@ prove identity, provenance, freshness, or independent execution, and it cannot
 be imported, approved, or applied.
 
 Signer evidence is an optional detached layer that leaves those unsigned bundle
-bytes and semantics unchanged. It is currently recorded under `Unreleased` and
-requires the next minor package release; from this checkout, replace `believeme`
-below with `node bin/believeme.js`:
+bytes and semantics unchanged. It is available in v0.4.0 and later packages:
 
 ```bash
 chmod 600 signer-private.pem
