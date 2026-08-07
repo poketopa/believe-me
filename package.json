@@ -1,6 +1,6 @@
 {
   "name": "@poketopa/believe-me",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "description": "BelieveMe is an evidence-first execution harness for safe, verifiable AI code changes",
   "type": "module",

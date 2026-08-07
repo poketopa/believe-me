@@ -4,26 +4,26 @@ BelieveMe publishes reviewed releases through a release-only GitHub Actions
 workflow and npm Trusted Publishing. The first public release is
 `@poketopa/believe-me@0.1.0`.
 
-## Adaptive Milestone Release Policy
+## Manual Minor Release Policy
 
-The `v0.2 — adaptive execution` milestone preserves this manual, reviewed release
-procedure. It does not add Changesets, Release Please, experimental release tags, or a
-second publication path. Existing publish triggers, permissions, the protected `npm`
-environment, immutable `v*` rules, OIDC Trusted Publishing, and owner approval remain
-unchanged.
+The `v0.2 — adaptive execution` and `v0.3 — verifiable review` milestones preserve
+this manual, reviewed release procedure. They do not add Changesets, Release Please,
+experimental release tags, or a second publication path. Existing publish triggers,
+permissions, the protected `npm` environment, immutable `v*` rules, OIDC Trusted
+Publishing, and owner approval remain unchanged.
 
 Every pull request declares `none`, `patch`, `minor`, or `breaking` release impact.
 User-visible behavior adds an `Unreleased` changelog entry; governance-only or internal
 measurement changes may declare `none`. These declarations inform a later dedicated
 release issue and metadata pull request and never authorize version changes, tags,
 GitHub Releases, or npm publication inside an ordinary feature or experiment pull
-request. Release automation may be reconsidered only in a separate post-v0.2 decision
-issue after another stable release.
+request. Release automation requires a separate owner decision and is not part of a
+feature or metadata pull request.
 
 ## Current State
 
 - `package.json`, `package-lock.json`, and the runtime product identity agree on
-  `@poketopa/believe-me@0.2.0`, with `private: false`.
+  `@poketopa/believe-me@0.3.0`, with `private: false`.
 - `.github/workflows/publish.yml` listens only for a published GitHub Release,
   and the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
 - The workflow publishes only after the protected `npm` environment authorizes
@@ -50,13 +50,28 @@ decision into the package, lockfile, runtime identity, changelog, and release
 documentation. Tag creation, GitHub Release publication, protected-environment
 approval, and npm publication still follow the unchanged procedure below.
 
+## v0.3 Owner Decision Gate
+
+On 2026-08-07, the owner authorized `v0.3.0` as a minor release containing
+reviewable stored evidence, portable unsigned evidence bundles, read-only adaptive
+session review, opt-in hermetic execution, the disposable public demo, and the Phase A
+maintenance fixes. Issue #71 and its reviewed metadata pull request carry that
+decision into the package, lockfile, runtime identity, changelog, security support
+table, and release documentation.
+
+Signed or keyless run attestations and additional AI-provider adapters remain deferred
+to Issues #69 and #70. This release makes no efficacy, provider-provenance, or trusted-
+execution claim; portable bundles remain unsigned and hermetic execution remains
+opt-in. Tag creation, GitHub Release publication, protected-environment approval, and
+npm publication still follow the unchanged procedure below.
+
 ## Local Contract Check
 
 Run both the ordinary checks and the exact release-mode contract:
 
 ```bash
 npm run release:check
-npm run release:check -- --tag v0.2.0 --publish
+npm run release:check -- --tag v0.3.0 --publish
 npm run check
 npm test
 npm run pack:check
