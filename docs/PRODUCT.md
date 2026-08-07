@@ -46,11 +46,18 @@ baseline remains unchanged until the separate approval/apply operation. The
 process-level CLI proof then rejects an incorrect receipt approval, accepts the
 bound receipt hash, reruns verification, and reaches `applied`.
 
-The JSONL CLI exposes `init`, `run`, `status`, `receipt`, `review`,
+The JSONL CLI exposes `demo`, `init`, `run`, `status`, `receipt`, `review`,
 `run-session`, `resume-session`, `status-session`, `review-session`,
 `export-bundle`, `verify-bundle`, and `apply`, with one canonical record per
 command outcome and documented exit codes. Both executor kinds reuse the same
 state, receipt, explicit approval, atomic apply, and resume contracts.
+
+`demo` composes the existing deterministic, command-verifier, stored-review,
+portable-evidence, and apply boundaries against a generated dependency-free Node
+fixture. The invocation authorizes receipt-hash apply only inside that disposable
+fixture; it does not approve or inspect the caller's project. The fixture and its
+state are removed before the single canonical JSONL result is returned. This is a
+packaging and first-use proof, not an efficacy benchmark or provenance claim.
 
 `review` is the read-only approval companion to `receipt`: it checks the stored
 receipt binding again and surfaces only the validated evidence summary, not raw

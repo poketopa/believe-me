@@ -47,6 +47,7 @@ import {
   createAdaptiveSessionRunners,
 } from "../core/adaptive-session-runner.js";
 import { createAdaptiveCodexRegistry } from "../adapters/adaptive-codex-registry.js";
+import { runDisposableDemo } from "./demo.js";
 
 const INIT_CONFIG_FILE = "config.jsonl";
 function resolveProjectPath(cwd, project = ".") {
@@ -318,6 +319,7 @@ function dependencies(options) {
       options.createAdaptiveCodexRegistry ?? createAdaptiveCodexRegistry,
     runDeterministicHarness:
       options.runDeterministicHarness ?? runDeterministicHarness,
+    runDisposableDemo: options.runDisposableDemo ?? runDisposableDemo,
     runHarness: options.runHarness ?? runHarness,
     runOneAttemptRoutedHarness:
       options.runOneAttemptRoutedHarness ?? runOneAttemptRoutedHarness,
@@ -373,6 +375,15 @@ async function applyVerifierForStoredRun(stateDir, runId, state, deps) {
 export async function executeCliCommand(parsed, options = {}) {
   const cwd = resolve(options.cwd ?? process.cwd());
   const deps = dependencies(options);
+
+  if (parsed.command === "demo") {
+    return deps.runDisposableDemo({
+      executeCommand: (nextParsed, nextOptions = {}) => executeCliCommand(
+        nextParsed,
+        { ...options, ...nextOptions },
+      ),
+    });
+  }
 
   if (parsed.command === "verify-bundle") {
     return deps.readPortableEvidenceBundle(parsed.bundle, { cwd });

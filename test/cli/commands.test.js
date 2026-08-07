@@ -14,6 +14,20 @@ import {
 const hash = "a".repeat(64);
 const paddedHash = "b".repeat(64);
 
+test("demo delegates without resolving a caller project", async () => {
+  let observed;
+  const summary = { demo_status: "completed", cleanup_status: "removed" };
+  const result = await executeCliCommand({ command: "demo" }, {
+    async runDisposableDemo(options) {
+      observed = options;
+      return summary;
+    },
+  });
+
+  assert.equal(typeof observed.executeCommand, "function");
+  assert.equal(result, summary);
+});
+
 function candidateChange(path, content) {
   const bytes = Buffer.from(content, "utf8");
   return {
