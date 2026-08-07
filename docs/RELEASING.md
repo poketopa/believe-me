@@ -6,11 +6,12 @@ workflow and npm Trusted Publishing. The first public release is
 
 ## Manual Minor Release Policy
 
-The `v0.2 — adaptive execution` and `v0.3 — verifiable review` milestones preserve
-this manual, reviewed release procedure. They do not add Changesets, Release Please,
-experimental release tags, or a second publication path. Existing publish triggers,
-permissions, the protected `npm` environment, immutable `v*` rules, OIDC Trusted
-Publishing, and owner approval remain unchanged.
+The `v0.2 — adaptive execution`, `v0.3 — verifiable review`, and `v0.4 — offline
+attestations` milestones preserve this manual, reviewed release procedure. They do
+not add Changesets, Release Please, experimental release tags, or a second
+publication path. Existing publish triggers, permissions, the protected `npm`
+environment, immutable `v*` rules, OIDC Trusted Publishing, and owner approval
+remain unchanged.
 
 Every pull request declares `none`, `patch`, `minor`, or `breaking` release impact.
 User-visible behavior adds an `Unreleased` changelog entry; governance-only or internal
@@ -23,7 +24,7 @@ feature or metadata pull request.
 ## Current State
 
 - `package.json`, `package-lock.json`, and the runtime product identity agree on
-  `@poketopa/believe-me@0.3.0`, with `private: false`.
+  `@poketopa/believe-me@0.4.0`, with `private: false`.
 - `.github/workflows/publish.yml` listens only for a published GitHub Release,
   and the job skips unless `vars.NPM_PUBLISH_ENABLED == 'true'`.
 - The workflow publishes only after the protected `npm` environment authorizes
@@ -65,13 +66,29 @@ execution claim; portable bundles remain unsigned and hermetic execution remains
 opt-in. Tag creation, GitHub Release publication, protected-environment approval, and
 npm publication still follow the unchanged procedure below.
 
+## v0.4 Owner Decision Gate
+
+On 2026-08-07, the owner authorized `v0.4.0` as an additive minor release for
+optional detached offline Ed25519 attestations over exact portable bundle bytes.
+Issue #76 and its reviewed metadata pull request carry that decision into the
+package, lockfile, runtime identity, changelog, security support table, and release
+documentation.
+
+The existing unsigned bundle path remains supported and byte-compatible.
+Attestation verification proves possession of the caller-trusted key for exact
+bundle bytes; it does not establish person identity, freshness, revocation,
+transparency, trusted execution, import, approval, or apply authority. Sigstore
+keyless transparency and additional providers in Issue #70 remain deferred. Tag
+creation, GitHub Release publication, protected-environment approval, and npm
+publication still follow the unchanged procedure below.
+
 ## Local Contract Check
 
 Run both the ordinary checks and the exact release-mode contract:
 
 ```bash
 npm run release:check
-npm run release:check -- --tag v0.3.0 --publish
+npm run release:check -- --tag v0.4.0 --publish
 npm run check
 npm test
 npm run pack:check

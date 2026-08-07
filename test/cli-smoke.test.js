@@ -11,7 +11,7 @@ test("CLI exposes the working product identity", () => {
 
   assert.equal(result.status, 0);
   assert.equal(result.stderr, "");
-  assert.equal(result.stdout, "0.3.0\n");
+  assert.equal(result.stdout, "0.4.0\n");
 });
 
 test("CLI documents the current command surface", () => {

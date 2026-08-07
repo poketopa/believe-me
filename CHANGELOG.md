@@ -5,6 +5,8 @@ Release.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-07
+
 ### Added
 
 - Optional detached Ed25519 attestations for portable evidence through
