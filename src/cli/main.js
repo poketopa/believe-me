@@ -22,6 +22,8 @@ export function cliHelpText() {
     `  ${product.command} resume-session <session-id> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} export-bundle <run-id> --output <file> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} verify-bundle --bundle <file>`,
+    `  ${product.command} attest-bundle --bundle <file> --private-key <pkcs8.pem> --output <file>`,
+    `  ${product.command} verify-attestation --bundle <file> --attestation <file> --public-key <spki.pem>`,
     `  ${product.command} apply <run-id> --approve <receipt-sha256> [--project <path>] [--state-dir <path>]`,
     `  ${product.command} apply-session <session-id> --approve <winner-receipt-sha256> [--project <path>] [--state-dir <path>]`,
     "",

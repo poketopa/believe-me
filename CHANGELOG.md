@@ -5,6 +5,14 @@ Release.
 
 ## [Unreleased]
 
+### Added
+
+- Optional detached Ed25519 attestations for portable evidence through
+  `attest-bundle` and `verify-attestation`. Existing unsigned bundles remain
+  byte-identical and supported; verification proves only that the caller-trusted
+  key signed the exact bundle bytes, without freshness, revocation, transparency,
+  approval, import, or apply authority.
+
 ## [0.3.0] - 2026-08-07
 
 ### Added

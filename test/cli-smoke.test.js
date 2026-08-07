@@ -32,6 +32,8 @@ test("CLI documents the current command surface", () => {
     "review-session",
     "export-bundle",
     "verify-bundle",
+    "attest-bundle",
+    "verify-attestation",
     "apply",
   ]) {
     assert.match(result.stdout, new RegExp(`\\b${command}\\b`));

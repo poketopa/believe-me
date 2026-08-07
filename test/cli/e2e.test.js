@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { generateKeyPairSync } from "node:crypto";
 import {
   cp,
   mkdir,
@@ -255,6 +256,45 @@ test("CLI process runs, receipts, and explicitly applies the Spring proof", asyn
   assert.equal(verified.data.run_id, run.data.run_id);
   assert.equal(verified.data.receipt_sha256, run.data.receipt_sha256);
   assert.deepEqual(verified.data.changes, review.data.changes);
+
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519", {
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const privateKeyPath = join(portableRoot, "signer-private.pem");
+  const publicKeyPath = join(portableRoot, "signer-public.pem");
+  const attestationPath = join(portableRoot, "run-first.attestation.jsonl");
+  await writeFile(privateKeyPath, privateKey, { mode: 0o600 });
+  await writeFile(publicKeyPath, publicKey, { mode: 0o600 });
+  const attested = assertSuccess(await runCli([
+    "attest-bundle",
+    "--bundle",
+    firstBundle,
+    "--private-key",
+    privateKeyPath,
+    "--output",
+    attestationPath,
+  ], { cwd: portableRoot }), "attest-bundle");
+  assert.equal(attested.data.creation_status, "bundle_attestation_created");
+  assert.equal(attested.data.bundle_sha256, verified.data.bundle_sha256);
+  const verifiedAttestation = assertSuccess(await runCli([
+    "verify-attestation",
+    "--bundle",
+    firstBundle,
+    "--attestation",
+    attestationPath,
+    "--public-key",
+    publicKeyPath,
+  ], { cwd: portableRoot }), "verify-attestation");
+  assert.equal(
+    verifiedAttestation.data.verification_status,
+    "bundle_attestation_verified",
+  );
+  assert.equal(
+    verifiedAttestation.data.bundle_sha256,
+    verified.data.bundle_sha256,
+  );
+  assert.equal(verifiedAttestation.data.trust.apply_authority, false);
   assert.deepEqual(
     await readTextArtifacts({
       state: join(initialized.data.state_dir, "runs", run.data.run_id, "state.jsonl"),

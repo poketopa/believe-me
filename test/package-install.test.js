@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import {
   cp,
   mkdir,
@@ -106,6 +106,8 @@ test("npm tarball installs with a working executable", async () => {
   assert.match(help.stdout, /believeme demo/);
   assert.match(help.stdout, /believeme export-bundle/);
   assert.match(help.stdout, /believeme verify-bundle/);
+  assert.match(help.stdout, /believeme attest-bundle/);
+  assert.match(help.stdout, /believeme verify-attestation/);
   assert.match(help.stdout, /believeme run-session/);
   assert.match(help.stdout, /believeme resume-session/);
   assert.match(help.stdout, /believeme status-session/);
@@ -296,6 +298,39 @@ test("npm tarball installs with a working executable", async () => {
   ], { cwd: portableRoot, env: process.env }), "verify-bundle");
   assert.equal(portable.verification_status, "portable_evidence_verified");
   assert.equal(portable.run_id, completed.run_id);
+
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519", {
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const privateKeyPath = join(portableRoot, "signer-private.pem");
+  const publicKeyPath = join(portableRoot, "signer-public.pem");
+  const attestationPath = join(portableRoot, "installed-run.attestation.jsonl");
+  await writeFile(privateKeyPath, privateKey, { mode: 0o600 });
+  await writeFile(publicKeyPath, publicKey, { mode: 0o600 });
+  const attested = parseSuccessfulJsonl(await run(executable, [
+    "attest-bundle",
+    "--bundle",
+    bundlePath,
+    "--private-key",
+    privateKeyPath,
+    "--output",
+    attestationPath,
+  ], { cwd: portableRoot, env: process.env }), "attest-bundle");
+  assert.equal(attested.creation_status, "bundle_attestation_created");
+  assert.equal(attested.bundle_sha256, portable.bundle_sha256);
+  const attestation = parseSuccessfulJsonl(await run(executable, [
+    "verify-attestation",
+    "--bundle",
+    bundlePath,
+    "--attestation",
+    attestationPath,
+    "--public-key",
+    publicKeyPath,
+  ], { cwd: portableRoot, env: process.env }), "verify-attestation");
+  assert.equal(attestation.verification_status, "bundle_attestation_verified");
+  assert.equal(attestation.bundle_sha256, portable.bundle_sha256);
+  assert.equal(attestation.trust.apply_authority, false);
 
   await writeFile(manifestPath, `${JSON.stringify({
     schema_version: { major: 1 },

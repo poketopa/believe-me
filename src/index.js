@@ -210,6 +210,15 @@ export {
   applyEvidenceBundle,
 } from "./core/apply.js";
 export {
+  BUNDLE_ATTESTATION_ALGORITHM,
+  BUNDLE_ATTESTATION_CONTEXT,
+  BUNDLE_ATTESTATION_FIELDS,
+  BUNDLE_ATTESTATION_KIND,
+  BUNDLE_ATTESTATION_MAX_BYTES,
+  createBundleAttestation,
+  verifyBundleAttestation,
+} from "./core/bundle-attestation.js";
+export {
   SPRING_VERIFIER_ADAPTER_ID,
   runSpringVerifier,
 } from "./adapters/spring-verifier.js";

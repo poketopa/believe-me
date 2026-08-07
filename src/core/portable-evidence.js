@@ -1,7 +1,3 @@
-import { constants } from "node:fs";
-import { link, lstat, open, readdir, rm } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { basename, dirname, join, parse, relative, resolve, sep } from "node:path";
 import {
   EXECUTOR_KINDS,
   assertEnum,
@@ -11,13 +7,17 @@ import {
   deepFreeze,
 } from "../contracts/common.js";
 import { validateEvidenceReceipt } from "../contracts/evidence-receipt.js";
-import { notFound, safetyRefusal } from "../contracts/errors.js";
+import { safetyRefusal } from "../contracts/errors.js";
 import { canonicalJSONLine, canonicalJSONLineBytes } from "./canonical-json.js";
 import { sha256Hex } from "./hash.js";
 import {
   REVIEWABLE_LIFECYCLE_STATES,
   validateReviewEvidence,
 } from "./review-evidence.js";
+import {
+  readBoundedRegularFileNoFollow,
+  writeAtomicArtifactNoOverwrite,
+} from "./safe-artifact.js";
 
 export const PORTABLE_EVIDENCE_KIND = "believeme.portable-evidence";
 export const PORTABLE_EVIDENCE_MAX_BYTES = 64 * 1024 * 1024;
@@ -250,296 +250,42 @@ export function verifyPortableEvidenceBytes(bytes) {
   });
 }
 
-async function assertRealDirectoryPath(path) {
-  const { root } = parse(path);
-  let current = root;
-  let currentStats = await lstat(root);
-  for (const segment of relative(root, path).split(sep).filter(Boolean)) {
-    current = resolve(current, segment);
-    currentStats = await lstat(current).catch((error) => {
-      if (error.code === "ENOENT") {
-        throw notFound("Portable bundle output parent does not exist.", {
-          path,
-        });
-      }
-      throw error;
-    });
-    if (currentStats.isSymbolicLink() || !currentStats.isDirectory()) {
-      throw safetyRefusal(
-        "Portable bundle output parent must be a real directory path.",
-        { path },
-      );
-    }
-  }
-  return currentStats;
-}
-
-async function assertOpenParentIdentity(path, handle, expected) {
-  const [opened, current] = await Promise.all([
-    handle.stat(),
-    lstat(path),
-  ]);
-  if (
-    current.isSymbolicLink() ||
-    !current.isDirectory() ||
-    !opened.isDirectory() ||
-    opened.dev !== expected.dev ||
-    opened.ino !== expected.ino ||
-    current.dev !== expected.dev ||
-    current.ino !== expected.ino
-  ) {
-    throw safetyRefusal("Portable bundle output parent identity changed.", {
-      path,
-    });
-  }
-}
-
-async function removeFileFromOriginalParent(filePath, expectedParent, handle) {
-  if (handle === undefined) {
-    return;
-  }
-  const parent = dirname(filePath);
-  const current = await lstat(parent).catch(() => null);
-  if (
-    current !== null &&
-    !current.isSymbolicLink() &&
-    current.isDirectory() &&
-    current.dev === expectedParent.dev &&
-    current.ino === expectedParent.ino
-  ) {
-    await removePathIfHandleIdentity(filePath, handle);
-    return;
-  }
-
-  const container = dirname(parent);
-  const names = await readdir(container).catch(() => []);
-  for (const name of names) {
-    const candidate = join(container, name);
-    const stats = await lstat(candidate).catch(() => null);
-    if (
-      stats !== null &&
-      !stats.isSymbolicLink() &&
-      stats.isDirectory() &&
-      stats.dev === expectedParent.dev &&
-      stats.ino === expectedParent.ino
-    ) {
-      await removePathIfHandleIdentity(join(candidate, basename(filePath)), handle);
-      return;
-    }
-  }
-}
-
-async function removePathIfHandleIdentity(path, handle) {
-  const [opened, current] = await Promise.all([
-    handle.stat(),
-    lstat(path).catch(() => null),
-  ]);
-  if (
-    current !== null &&
-    current.isFile() &&
-    current.dev === opened.dev &&
-    current.ino === opened.ino
-  ) {
-    await rm(path, { force: true });
-  }
-}
+const PORTABLE_ARTIFACT_MESSAGES = Object.freeze({
+  bytesMalformed: "Portable evidence bundle bytes are malformed.",
+  exceedsLimit: "Portable evidence bundle exceeds the 64 MiB limit.",
+  parentMissing: "Portable bundle output parent does not exist.",
+  parentRealDirectory:
+    "Portable bundle output parent must be a real directory path.",
+  noFollowDirectoryUnsupported:
+    "Portable evidence export requires no-follow directory support.",
+  outputExists: "Portable bundle output path already exists.",
+  parentIdentityChanged: "Portable bundle output parent identity changed.",
+  missing: "Portable evidence bundle does not exist.",
+  regularFile: "Portable evidence bundle must be a regular file.",
+  noFollowFileUnsupported:
+    "Portable evidence verification requires no-follow file support.",
+  identityChanged: "Portable evidence bundle identity changed.",
+});
 
 export async function writePortableEvidenceBundle(path, bytes, options = {}) {
-  if (!Buffer.isBuffer(bytes)) {
-    throw safetyRefusal("Portable evidence bundle bytes are malformed.");
-  }
-  if (bytes.byteLength > PORTABLE_EVIDENCE_MAX_BYTES) {
-    throw safetyRefusal("Portable evidence bundle exceeds the 64 MiB limit.");
-  }
-  const cwd = resolve(options.cwd ?? process.cwd());
-  const outputPath = resolve(cwd, path);
-  const parent = dirname(outputPath);
-  const parentStats = await assertRealDirectoryPath(parent);
-  if (
-    constants.O_NOFOLLOW === undefined ||
-    constants.O_DIRECTORY === undefined
-  ) {
-    throw safetyRefusal(
-      "Portable evidence export requires no-follow directory support.",
-    );
-  }
-  const existing = await lstat(outputPath).catch((error) => {
-    if (error.code === "ENOENT") {
-      return null;
-    }
-    throw error;
+  const published = await writeAtomicArtifactNoOverwrite(path, bytes, {
+    ...options,
+    maxBytes: PORTABLE_EVIDENCE_MAX_BYTES,
+    temporaryPrefix: "believeme-portable",
+    messages: PORTABLE_ARTIFACT_MESSAGES,
   });
-  if (existing !== null) {
-    throw safetyRefusal("Portable bundle output path already exists.", {
-      path: outputPath,
-    });
-  }
-  const parentHandle = await open(
-    parent,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY,
-  ).catch((error) => {
-    if (error.code === "ELOOP" || error.code === "ENOTDIR") {
-      throw safetyRefusal(
-        "Portable bundle output parent must be a real directory path.",
-        { path: parent },
-      );
-    }
-    throw error;
+  return deepFreeze({
+    output_path: published.output_path,
+    bundle_bytes: published.bytes,
+    bundle_sha256: published.sha256,
   });
-  await assertOpenParentIdentity(parent, parentHandle, parentStats).catch(
-    async (error) => {
-      await parentHandle.close();
-      throw error;
-    },
-  );
-
-  const temporaryPath = resolve(
-    parent,
-    `.believeme-portable.${process.pid}.${randomUUID()}.tmp`,
-  );
-  let handle;
-  let publishing = false;
-  let published = false;
-  const writeBytes = options.writeBytes ?? ((file, content) =>
-    file.writeFile(content));
-  const openTemporary = options.openTemporary ?? ((candidatePath) =>
-    open(candidatePath, "wx", 0o600));
-  const publishLink = options.publishLink ?? link;
-  try {
-    await options.beforeTemporaryOpen?.({ parent, temporaryPath });
-    await assertOpenParentIdentity(parent, parentHandle, parentStats);
-    handle = await openTemporary(temporaryPath);
-    await assertOpenParentIdentity(parent, parentHandle, parentStats);
-    await writeBytes(handle, bytes);
-    await handle.sync();
-    await assertOpenParentIdentity(parent, parentHandle, parentStats);
-    publishing = true;
-    await publishLink(temporaryPath, outputPath);
-    await assertOpenParentIdentity(parent, parentHandle, parentStats);
-    published = true;
-    return deepFreeze({
-      output_path: outputPath,
-      bundle_bytes: bytes.byteLength,
-      bundle_sha256: sha256Hex(bytes),
-    });
-  } catch (error) {
-    if (handle !== undefined && !published) {
-      await handle.truncate(0);
-      await handle.sync();
-      if (publishing) {
-        await removePathIfHandleIdentity(outputPath, handle);
-        await removeFileFromOriginalParent(outputPath, parentStats, handle);
-      }
-    }
-    if (publishing && error?.code === "EEXIST") {
-      throw safetyRefusal("Portable bundle output path already exists.", {
-        path: outputPath,
-      });
-    }
-    throw error;
-  } finally {
-    try {
-      if (handle !== undefined) {
-        await removePathIfHandleIdentity(temporaryPath, handle);
-        await removeFileFromOriginalParent(temporaryPath, parentStats, handle);
-      }
-    } finally {
-      try {
-        await handle?.close();
-      } finally {
-        await parentHandle.close();
-      }
-    }
-  }
-}
-
-async function boundedRead(handle) {
-  const chunks = [];
-  let total = 0;
-  while (total <= PORTABLE_EVIDENCE_MAX_BYTES) {
-    const length = Math.min(
-      64 * 1024,
-      PORTABLE_EVIDENCE_MAX_BYTES + 1 - total,
-    );
-    const chunk = Buffer.allocUnsafe(length);
-    const { bytesRead } = await handle.read(chunk, 0, length, null);
-    if (bytesRead === 0) {
-      break;
-    }
-    chunks.push(chunk.subarray(0, bytesRead));
-    total += bytesRead;
-  }
-  if (total > PORTABLE_EVIDENCE_MAX_BYTES) {
-    throw safetyRefusal("Portable evidence bundle exceeds the 64 MiB limit.");
-  }
-  return Buffer.concat(chunks, total);
 }
 
 export async function readPortableEvidenceBundle(path, options = {}) {
-  const cwd = resolve(options.cwd ?? process.cwd());
-  const inputPath = resolve(cwd, path);
-  const before = await lstat(inputPath).catch((error) => {
-    if (error.code === "ENOENT") {
-      throw notFound("Portable evidence bundle does not exist.", {
-        path: inputPath,
-      });
-    }
-    throw error;
+  const { bytes } = await readBoundedRegularFileNoFollow(path, {
+    ...options,
+    maxBytes: PORTABLE_EVIDENCE_MAX_BYTES,
+    messages: PORTABLE_ARTIFACT_MESSAGES,
   });
-  if (before.isSymbolicLink() || !before.isFile()) {
-    throw safetyRefusal("Portable evidence bundle must be a regular file.", {
-      path: inputPath,
-    });
-  }
-  if (before.size > PORTABLE_EVIDENCE_MAX_BYTES) {
-    throw safetyRefusal("Portable evidence bundle exceeds the 64 MiB limit.");
-  }
-  if (constants.O_NOFOLLOW === undefined) {
-    throw safetyRefusal(
-      "Portable evidence verification requires no-follow file support.",
-    );
-  }
-  const flags = constants.O_RDONLY | constants.O_NOFOLLOW;
-  let handle;
-  try {
-    handle = await open(inputPath, flags);
-    const opened = await handle.stat();
-    if (
-      !opened.isFile() ||
-      opened.dev !== before.dev ||
-      opened.ino !== before.ino
-    ) {
-      throw safetyRefusal("Portable evidence bundle identity changed.", {
-        path: inputPath,
-      });
-    }
-    if (opened.size > PORTABLE_EVIDENCE_MAX_BYTES) {
-      throw safetyRefusal("Portable evidence bundle exceeds the 64 MiB limit.");
-    }
-    const bytes = await boundedRead(handle);
-    await options.afterRead?.({ inputPath });
-    const closedSnapshot = await handle.stat();
-    const after = await lstat(inputPath);
-    if (
-      after.isSymbolicLink() ||
-      after.dev !== before.dev ||
-      after.ino !== before.ino ||
-      closedSnapshot.size !== bytes.byteLength ||
-      after.size !== bytes.byteLength
-    ) {
-      throw safetyRefusal("Portable evidence bundle identity changed.", {
-        path: inputPath,
-      });
-    }
-    return verifyPortableEvidenceBytes(bytes);
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      throw notFound("Portable evidence bundle does not exist.", {
-        path: inputPath,
-      });
-    }
-    throw error;
-  } finally {
-    await handle?.close();
-  }
+  return verifyPortableEvidenceBytes(bytes);
 }

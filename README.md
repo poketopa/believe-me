@@ -84,8 +84,8 @@ skill / policy
 
 The CLI surface is `init`, `run`, `status`, `receipt`, `review`,
 `demo`, `run-session`, `resume-session`, `status-session`, `review-session`,
-`export-bundle`, `verify-bundle`, `apply`, and the additive `apply-session`
-command for a verified adaptive-session winner.
+`export-bundle`, `verify-bundle`, `attest-bundle`, `verify-attestation`, `apply`,
+and the additive `apply-session` command for a verified adaptive-session winner.
 
 ## Current proof
 
@@ -177,6 +177,14 @@ believeme export-bundle <run-id> \
   --output ./run-evidence.jsonl \
   --project ./my-project
 believeme verify-bundle --bundle ./run-evidence.jsonl
+believeme attest-bundle \
+  --bundle ./run-evidence.jsonl \
+  --private-key ./signer-private.pem \
+  --output ./run-evidence.attestation.jsonl
+believeme verify-attestation \
+  --bundle ./run-evidence.jsonl \
+  --attestation ./run-evidence.attestation.jsonl \
+  --public-key ./signer-public.pem
 believeme apply <run-id> \
   --approve <receipt-sha256> \
   --project ./my-project
@@ -296,6 +304,33 @@ canonical file, receipt digest, embedded verification/result digests, and their
 run/executor semantics are internally consistent. The unsigned bundle does not
 prove identity, provenance, freshness, or independent execution, and it cannot
 be imported, approved, or applied.
+
+Signer evidence is an optional detached layer that leaves those unsigned bundle
+bytes and semantics unchanged. It is currently recorded under `Unreleased` and
+requires the next minor package release; from this checkout, replace `believeme`
+below with `node bin/believeme.js`:
+
+```bash
+chmod 600 signer-private.pem
+believeme attest-bundle \
+  --bundle run.jsonl \
+  --private-key signer-private.pem \
+  --output run.attestation.jsonl
+
+believeme verify-attestation \
+  --bundle run.jsonl \
+  --attestation run.attestation.jsonl \
+  --public-key signer-public.pem
+```
+
+The v1 mode accepts an Ed25519 PKCS8 private key and an SPKI public key, uses no
+network or runtime dependency, and signs the exact canonical bundle bytes. A
+successful `bundle_attestation_verified` result proves possession of the
+caller-trusted key identified by its DER-SPKI SHA-256 fingerprint. Key ownership,
+distribution, rotation, and revocation are external policy. The stable fingerprint
+can correlate signatures, and no timestamp, person identity, freshness,
+transparency-log inclusion, trusted execution, approval, import, or apply authority
+is claimed. Existing `verify-bundle` remains the unsigned compatibility path.
 
 ## Development
 

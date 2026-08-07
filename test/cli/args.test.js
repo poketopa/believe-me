@@ -105,6 +105,40 @@ test("parses run-bound and portable evidence commands", () => {
       bundle: "./run.jsonl",
     },
   );
+  assert.deepEqual(
+    parseCliArgs([
+      "attest-bundle",
+      "--bundle",
+      "./run.jsonl",
+      "--private-key",
+      "./signer-private.pem",
+      "--output",
+      "./run.attestation.jsonl",
+    ]),
+    {
+      command: "attest-bundle",
+      bundle: "./run.jsonl",
+      privateKey: "./signer-private.pem",
+      output: "./run.attestation.jsonl",
+    },
+  );
+  assert.deepEqual(
+    parseCliArgs([
+      "verify-attestation",
+      "--bundle",
+      "./run.jsonl",
+      "--attestation",
+      "./run.attestation.jsonl",
+      "--public-key",
+      "./signer-public.pem",
+    ]),
+    {
+      command: "verify-attestation",
+      bundle: "./run.jsonl",
+      attestation: "./run.attestation.jsonl",
+      publicKey: "./signer-public.pem",
+    },
+  );
 });
 
 test("parses run-session with exact frozen launch inputs", () => {
@@ -366,6 +400,33 @@ test("rejects missing required flags extra positionals and unsupported executor"
   assert.throws(
     () => parseCliArgs(["verify-bundle", "--bundle", "x", "--project", "/repo"]),
     /Unknown flag/,
+  );
+  assert.throws(
+    () => parseCliArgs(["attest-bundle", "--bundle", "x"]),
+    /Missing required flag '--private-key'/,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      "verify-attestation",
+      "--bundle",
+      "x",
+      "--attestation",
+      "x.attestation",
+    ]),
+    /Missing required flag '--public-key'/,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      "verify-attestation",
+      "run-1",
+      "--bundle",
+      "x",
+      "--attestation",
+      "x.attestation",
+      "--public-key",
+      "public.pem",
+    ]),
+    /Invalid positional argument count/,
   );
   assert.throws(
     () => parseCliArgs(["status", "run-1", "extra"]),

@@ -11,6 +11,10 @@ import {
   writePortableEvidenceBundle,
 } from "../core/portable-evidence.js";
 import {
+  createBundleAttestation,
+  verifyBundleAttestation,
+} from "../core/bundle-attestation.js";
+import {
   assertEvidenceReceiptBoundToState,
   assertReviewableLifecycle,
   storedReviewSummary,
@@ -295,6 +299,8 @@ function dependencies(options) {
     applyEvidenceBundle: options.applyEvidenceBundle ?? applyEvidenceBundle,
     buildPortableEvidenceBundle:
       options.buildPortableEvidenceBundle ?? buildPortableEvidenceBundle,
+    createBundleAttestation:
+      options.createBundleAttestation ?? createBundleAttestation,
     createCodexExecutor: options.createCodexExecutor ?? createCodexExecutor,
     createManifestVerifier:
       options.createManifestVerifier ?? createManifestVerifier,
@@ -328,6 +334,8 @@ function dependencies(options) {
       options.runAdaptiveSession ?? runAdaptiveSession,
     resumeAdaptiveSession:
       options.resumeAdaptiveSession ?? resumeAdaptiveSession,
+    verifyBundleAttestation:
+      options.verifyBundleAttestation ?? verifyBundleAttestation,
     now: options.now ?? Date.now,
     runIdFactory: options.runIdFactory ?? (() => `run-${randomUUID()}`),
     verifyAppliedProject: options.verifyAppliedProject ?? null,
@@ -387,6 +395,24 @@ export async function executeCliCommand(parsed, options = {}) {
 
   if (parsed.command === "verify-bundle") {
     return deps.readPortableEvidenceBundle(parsed.bundle, { cwd });
+  }
+
+  if (parsed.command === "attest-bundle") {
+    return deps.createBundleAttestation({
+      bundlePath: parsed.bundle,
+      privateKeyPath: parsed.privateKey,
+      outputPath: parsed.output,
+      cwd,
+    });
+  }
+
+  if (parsed.command === "verify-attestation") {
+    return deps.verifyBundleAttestation({
+      bundlePath: parsed.bundle,
+      attestationPath: parsed.attestation,
+      publicKeyPath: parsed.publicKey,
+      cwd,
+    });
   }
 
   const paths = commandPaths(parsed, cwd);
