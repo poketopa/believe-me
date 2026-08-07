@@ -176,6 +176,34 @@ requires README, license, and third-party notices to be repository-local regular
 files present in the exact packed artifact, so symlink dereferencing cannot
 substitute unreviewed external content.
 
+## v0.4.0 Release Evidence
+
+- Release decision and scope: [Issue #76](https://github.com/poketopa/believe-me/issues/76)
+- GitHub Release: [`v0.4.0`](https://github.com/poketopa/believe-me/releases/tag/v0.4.0)
+- Successful OIDC Trusted Publishing workflow:
+  [run 31142355549](https://github.com/poketopa/believe-me/actions/runs/31142355549)
+- Reviewed implementation and metadata PRs plus successful final main CI:
+  [PR #75](https://github.com/poketopa/believe-me/pull/75),
+  [PR #77](https://github.com/poketopa/believe-me/pull/77), and
+  [run 31142189670](https://github.com/poketopa/believe-me/actions/runs/31142189670)
+- Immutable release commit and npm `gitHead`:
+  `a84f6ce1d8fffc8d26afa5606fe8f5dda4dd1080`
+- Public package:
+  [`@poketopa/believe-me@0.4.0`](https://www.npmjs.com/package/@poketopa/believe-me/v/0.4.0)
+- Registry integrity:
+  `sha512-igblYOOK2lkzzNSSx3aH3jDRemF62NqtSZLktgWyzfq22ECMp5LT9B2l4QYfZE6ActoGUzvycyLBS12pZ2pjaA==`
+- Registry provenance: npm exposes both its publish attestation and a SLSA
+  provenance v1 attestation at the
+  [package attestation endpoint](https://registry.npmjs.org/-/npm/v1/attestations/@poketopa%2fbelieve-me@0.4.0).
+- Clean-install smoke: a fresh prefix installed the exact public registry
+  artifact; `believeme --version` returned `0.4.0`, help listed `demo`,
+  `attest-bundle`, and `verify-attestation`, and the disposable demo completed.
+  A fresh deterministic run exported bundle
+  `f500a4c2bac5196004aa33a295bb1e25c6d5f708d5fcb749955c9163e7dedca0`;
+  the installed CLI created and verified detached attestation
+  `992ba7712787bc2d435984be3e5278794914df5c0408eda593612649a71a5816`
+  while reporting `apply_authority:false`.
+
 ## v0.3.0 Release Evidence
 
 - Release decision and scope: [Issue #71](https://github.com/poketopa/believe-me/issues/71)
