@@ -31,6 +31,16 @@ Release.
 - Opt-in `run-session` and `resume-session` commands that compose the frozen
   launch authority with isolated routed child runs, preserve claimed child
   identity on resume, and leave explicit winner apply as a separate command.
+- A frozen `HermeticBoundary` authority plus opt-in Linux bubblewrap execution
+  for command verifiers and rootless Podman OCI execution for the Spring
+  verifier. Unsupported or drifted runtimes fail closed without a direct-execution
+  fallback.
+
+### Fixed
+
+- Gradle-backed integration tests use an independent `GRADLE_USER_HOME` per test
+  file, preventing concurrent daemon-registry corruption without serializing the
+  test suite or changing verifier semantics.
 
 ## [0.2.0] - 2026-08-06
 
