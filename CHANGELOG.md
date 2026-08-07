@@ -7,6 +7,10 @@ Release.
 
 ### Added
 
+- A public `believeme demo` command that exercises the receipt, stored review,
+  portable export/verification, receipt-hash approval, and atomic apply lifecycle
+  against a disposable dependency-free Node fixture without credentials, network,
+  Java, or changes to the caller's working directory.
 - A read-only `review` CLI command that re-validates stored receipt-bound
   evidence and returns a bounded approval summary without re-running the
   verifier or exposing candidate bytes. The explicit

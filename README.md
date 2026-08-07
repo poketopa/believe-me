@@ -2,9 +2,45 @@
 
 **Don't trust the summary. Verify the run.**
 
-A local-first execution harness that turns AI code changes into a verifiable
-workflow: select policy, execute in isolation, verify evidence, approve, and
-apply atomically.
+A local-first trust layer that keeps generated changes away from the source
+project until a declared verifier passes, receipt-bound evidence is reviewable,
+and the exact receipt is approved for atomic apply.
+
+Unlike an agent that edits a working tree directly, BelieveMe separates
+execution, verification, evidence review, approval, and mutation authority.
+
+## Two-minute disposable demo
+
+```bash
+npm install --global @poketopa/believe-me
+believeme demo
+```
+
+The command creates a dependency-free Node fixture in a private temporary
+directory, repairs an intentionally incorrect boundary, and exercises the real
+receipt → review → portable export/verify → receipt-hash approval → fresh
+verification → atomic apply lifecycle. It uses no provider credentials, network,
+Java, PostgreSQL, or Podman, never edits the directory from which it was invoked,
+and removes the fixture before returning.
+
+The result is exactly one canonical JSONL record containing the receipt and
+bundle hashes, every demonstrated stage, the applied path, and cleanup status.
+
+Abbreviated example (hashes and `changed_paths` omitted):
+
+```json
+{"command":"demo","data":{"cleanup_status":"removed","demo_status":"completed","stages":[{"lifecycle_state":"receipted","stage":"receipt"},{"review_status":"stored_evidence_verified","stage":"review"},{"stage":"export_verify","verification_status":"portable_evidence_verified"},{"approval_scope":"disposable_demo_project","lifecycle_state":"applied","stage":"approve_apply"}]},"schema_version":{"major":1},"status":"ok"}
+```
+
+The demo proves that the packaged lifecycle works. It is not a benchmark, an
+efficacy claim, provider provenance, or evidence of trusted execution. The
+currently published stable is v0.2.0; `demo` is recorded under `Unreleased` and
+requires the next minor package release. From this checkout, run
+`node bin/believeme.js demo`.
+
+Design references: [architecture](https://github.com/poketopa/believe-me/blob/main/docs/ARCHITECTURE.md),
+[threat model](https://github.com/poketopa/believe-me/blob/main/docs/THREAT-MODEL.md), and
+[design decisions](https://github.com/poketopa/believe-me/blob/main/docs/DESIGN-DECISIONS.md).
 
 > [!NOTE]
 > BelieveMe v0.2.0 adds adaptive execution as an opt-in feature set without an
@@ -48,7 +84,7 @@ skill / policy
 - deterministic verifier mutation calibration over independent Node and Spring tasks.
 
 The CLI surface is `init`, `run`, `status`, `receipt`, `review`,
-`run-session`, `resume-session`, `status-session`, `review-session`,
+`demo`, `run-session`, `resume-session`, `status-session`, `review-session`,
 `export-bundle`, `verify-bundle`, `apply`, and the additive `apply-session`
 command for a verified adaptive-session winner.
 

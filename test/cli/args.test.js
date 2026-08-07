@@ -5,6 +5,12 @@ import { parseCliArgs } from "../../src/cli/args.js";
 
 const sha = "a".repeat(64);
 
+test("parses demo without project or authority inputs", () => {
+  assert.deepEqual(parseCliArgs(["demo"]), { command: "demo" });
+  assert.throws(() => parseCliArgs(["demo", "extra"]), /positional argument count/);
+  assert.throws(() => parseCliArgs(["demo", "--project", "/repo"]), /Unknown flag/);
+});
+
 test("parses init with optional project and state directory", () => {
   const parsed = parseCliArgs([
     "init",

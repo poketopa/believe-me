@@ -1,6 +1,11 @@
 import { usageError } from "../contracts/errors.js";
 
 const commands = Object.freeze({
+  demo: Object.freeze({
+    flags: Object.freeze([]),
+    requiredFlags: Object.freeze([]),
+    positionals: 0,
+  }),
   init: Object.freeze({
     flags: Object.freeze(["project", "state-dir"]),
     requiredFlags: Object.freeze([]),

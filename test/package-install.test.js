@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   writeFile,
 } from "node:fs/promises";
@@ -102,12 +103,53 @@ test("npm tarball installs with a working executable", async () => {
     env: process.env,
   });
   assert.equal(help.code, 0, help.stderr);
+  assert.match(help.stdout, /believeme demo/);
   assert.match(help.stdout, /believeme export-bundle/);
   assert.match(help.stdout, /believeme verify-bundle/);
   assert.match(help.stdout, /believeme run-session/);
   assert.match(help.stdout, /believeme resume-session/);
   assert.match(help.stdout, /believeme status-session/);
   assert.match(help.stdout, /believeme review-session/);
+  const demoCwd = join(installRoot, "project");
+  const demoCwdBefore = await readdir(demoCwd);
+  const demoRootsBefore = (await readdir(tmpdir()))
+    .filter((name) => name.startsWith("believeme-demo-"))
+    .sort();
+  const demoStartedAt = Date.now();
+  const demo = parseSuccessfulJsonl(await run(executable, ["demo"], {
+    cwd: demoCwd,
+    env: process.env,
+    timeout: 120_000,
+  }), "demo");
+  assert.equal(Date.now() - demoStartedAt < 120_000, true);
+  assert.equal(demo.demo_status, "completed");
+  assert.equal(demo.project_scope, "disposable_temp_directory");
+  assert.equal(demo.provider_credentials_used, false);
+  assert.equal(demo.network_required, false);
+  assert.equal(demo.cleanup_status, "removed");
+  assert.match(demo.receipt_sha256, /^[a-f0-9]{64}$/u);
+  assert.match(demo.bundle_sha256, /^[a-f0-9]{64}$/u);
+  assert.deepEqual(demo.changed_paths, ["src/reservation-policy.js"]);
+  assert.deepEqual(demo.stages, [
+    { stage: "receipt", lifecycle_state: "receipted" },
+    { stage: "review", review_status: "stored_evidence_verified" },
+    {
+      stage: "export_verify",
+      verification_status: "portable_evidence_verified",
+    },
+    {
+      stage: "approve_apply",
+      approval_scope: "disposable_demo_project",
+      lifecycle_state: "applied",
+    },
+  ]);
+  assert.deepEqual(await readdir(demoCwd), demoCwdBefore);
+  assert.deepEqual(
+    (await readdir(tmpdir()))
+      .filter((name) => name.startsWith("believeme-demo-"))
+      .sort(),
+    demoRootsBefore,
+  );
   const badResumeUsage = await run(executable, [
     "resume-session",
     "installed-session-read",

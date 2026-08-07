@@ -10,6 +10,7 @@ export function cliHelpText() {
     "A verifiable execution harness for AI code changes.",
     "",
     "Usage:",
+    `  ${product.command} demo`,
     `  ${product.command} init [--project <path>] [--state-dir <path>]`,
     `  ${product.command} run --project <path> --skill <path> --executor <deterministic|codex> --input <path> [--state-dir <path>]`,
     `  ${product.command} status <run-id> [--project <path>] [--state-dir <path>]`,
